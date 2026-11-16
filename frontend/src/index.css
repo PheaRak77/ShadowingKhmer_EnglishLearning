@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #FAF9F6;
+  font-family: 'Inter', 'Kantumruy Pro', sans-serif;
+}
+
+.khmer-text {
+  font-family: 'Kantumruy Pro', 'Inter', sans-serif;
+  line-height: 1.75;
+}
+

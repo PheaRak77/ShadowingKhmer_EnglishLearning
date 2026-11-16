@@ -1,0 +1,14 @@
+import { Router } from 'express';
+import { AuthController } from '../controllers/authController.js';
+import { authenticateToken } from '../middleware/auth.js';
+
+const router = Router();
+
+router.get('/google-client-id', AuthController.getGoogleClientId);
+router.post('/register', AuthController.register);
+router.post('/login', AuthController.login);
+router.post('/google', AuthController.googleAuth);
+router.post('/google/connect', authenticateToken, AuthController.connectGoogleAccount);
+router.get('/me', authenticateToken, AuthController.getMe);
+
+export default router;

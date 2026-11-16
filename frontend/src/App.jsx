@@ -1,0 +1,1804 @@
+import React, { useEffect, useRef } from 'react';
+import YouTube from 'react-youtube';
+import {
+  Headphones,
+  Mic,
+  BookOpen,
+  GraduationCap,
+  Volume2,
+  Check,
+  CheckCircle2,
+  Loader2,
+  LogOut,
+  FolderOpen,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  RotateCw,
+  Search,
+  Sparkles,
+  Play,
+  Languages,
+  BookmarkPlus,
+  X,
+  Youtube,
+  Layers,
+  LayoutDashboard,
+  Crown,
+  Repeat,
+  Gauge,
+  SkipBack,
+  SkipForward,
+  Menu,
+  Trash2,
+} from 'lucide-react';
+import { useAppContext, DEMO_LESSON_DATA } from './reducer/appReducer.js';
+import AuthForm, { GoogleIcon } from './components/AuthForm.jsx';
+import AdminDashboard from './components/AdminDashboard.jsx';
+import Footer from './components/Footer.jsx';
+
+const API_BASE = import.meta.env.VITE_API_URL || '';
+
+// Helper: Speak English text or word using browser Web Speech API
+function speakEnglish(text, rate = 0.95) {
+  if (!('speechSynthesis' in window) || !text) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'en-US';
+  utterance.rate = rate;
+  window.speechSynthesis.speak(utterance);
+}
+
+// Helper: Format seconds into M:SS
+function formatTime(sec) {
+  const s = Math.max(0, Math.floor(sec || 0));
+  const mins = Math.floor(s / 60);
+  const rem = s % 60;
+  return `${mins}:${rem < 10 ? '0' : ''}${rem}`;
+}
+
+export default function App() {
+  const { state, dispatch } = useAppContext();
+  const playerRef = useRef(null);
+  const syncTimerRef = useRef(null);
+
+  const {
+    auth,
+    googleClientId,
+    activeScreen,
+    isMobileMenuOpen,
+    lessonsList,
+    myLessonsSearchQuery,
+    isLessonsDrawerOpen,
+    currentLesson,
+    sentences,
+    vocabulary,
+    allSavedVocabulary,
+    grammarPoints,
+    videoUrlInput,
+    creatingLesson,
+    loadingLesson,
+    notification,
+    practiceMode,
+    activeSentenceIndex,
+    visibleKhmerMap,
+    showAllKhmer,
+    completedSentencesMap,
+    sentenceSearchQuery,
+    playbackRate,
+    isLoopingSentence,
+    selectedWordPopup,
+    vocabView,
+    grammarFilter,
+    playerSize,
+  } = state;
+
+  // Fetch GOOGLE_CLIENT_ID from backend/.env
+  useEffect(() => {
+    fetch(`${API_BASE}/api/auth/google-client-id`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.clientId) {
+          dispatch({ type: 'SET_GOOGLE_CLIENT_ID', payload: data.clientId });
+        }
+      })
+      .catch(() => {});
+  }, [dispatch]);
+
+  // Fetch user's profile, lessons, and saved vocabulary when authenticated
+  useEffect(() => {
+    if (!auth.token) return;
+
+    const authHeaders = {
+      Authorization: `Bearer ${auth.token}`,
+      'Content-Type': 'application/json',
+    };
+
+    async function fetchInitialData() {
+      try {
+        const [meRes, lessonsRes, vocabRes] = await Promise.all([
+          fetch(`${API_BASE}/api/auth/me`, { headers: authHeaders }),
+          fetch(`${API_BASE}/api/lessons`, { headers: authHeaders }),
+          fetch(`${API_BASE}/api/vocabulary`, { headers: authHeaders }),
+        ]);
+
+        if (lessonsRes.status === 401 || lessonsRes.status === 403) {
+          localStorage.removeItem('sk_user');
+          localStorage.removeItem('sk_token');
+          dispatch({ type: 'AUTH_LOGOUT' });
+          return;
+        }
+
+        if (meRes.ok) {
+          const meData = await meRes.json();
+          if (meData.user) {
+            localStorage.setItem('sk_user', JSON.stringify(meData.user));
+            dispatch({
+              type: 'AUTH_UPDATE_USER',
+              payload: { user: meData.user },
+            });
+          }
+        }
+
+        if (lessonsRes.ok) {
+          const lessonsData = await lessonsRes.json();
+          const list = lessonsData.lessons || [];
+          dispatch({ type: 'SET_LESSONS_LIST', payload: list });
+
+          if (list.length > 0) {
+            loadLessonById(list[0].id, auth.token);
+          }
+        }
+
+        if (vocabRes.ok) {
+          const vocabData = await vocabRes.json();
+          dispatch({
+            type: 'SET_ALL_SAVED_VOCABULARY',
+            payload: vocabData.vocabulary || [],
+          });
+        }
+      } catch (err) {
+        console.warn('Could not load initial lessons from backend:', err.message);
+      }
+    }
+
+    fetchInitialData();
+  }, [auth.token]);
+
+  // Sync activeSentenceIndex with YouTube playback time & support Sentence Loop mode
+  useEffect(() => {
+    syncTimerRef.current = setInterval(() => {
+      if (
+        playerRef.current &&
+        typeof playerRef.current.getCurrentTime === 'function' &&
+        typeof playerRef.current.getPlayerState === 'function'
+      ) {
+        const playerState = playerRef.current.getPlayerState();
+        if (playerState === 1) {
+          const currentTime = playerRef.current.getCurrentTime();
+          const currentActiveObj = sentences.find(
+            (s) => s.sentence_index === activeSentenceIndex
+          );
+
+          // If Sentence Loop Mode is enabled, loop current sentence when reaching end_time
+          if (isLoopingSentence && currentActiveObj) {
+            if (currentTime >= currentActiveObj.end_time) {
+              playerRef.current.seekTo(currentActiveObj.start_time, true);
+              playerRef.current.playVideo();
+              return;
+            }
+          }
+
+          const matchedSentence = sentences.find(
+            (s) => currentTime >= s.start_time && currentTime <= s.end_time
+          );
+          if (
+            matchedSentence &&
+            matchedSentence.sentence_index !== activeSentenceIndex
+          ) {
+            dispatch({
+              type: 'SET_ACTIVE_SENTENCE',
+              payload: matchedSentence.sentence_index,
+            });
+          }
+        }
+      }
+    }, 250);
+
+    return () => {
+      if (syncTimerRef.current) clearInterval(syncTimerRef.current);
+    };
+  }, [sentences, activeSentenceIndex, isLoopingSentence, dispatch]);
+
+  const loadLessonById = async (lessonId, tokenOverride) => {
+    playerRef.current = null;
+    if (lessonId === 0) {
+      dispatch({
+        type: 'LOAD_LESSON_SUCCESS',
+        payload: DEMO_LESSON_DATA,
+      });
+      return;
+    }
+
+    dispatch({ type: 'LOAD_LESSON_START' });
+    try {
+      const res = await fetch(`${API_BASE}/api/lessons/${lessonId}`, {
+        headers: {
+          Authorization: `Bearer ${tokenOverride || auth.token}`,
+        },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        dispatch({ type: 'LOAD_LESSON_SUCCESS', payload: data });
+      } else {
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: { type: 'error', message: data.error || 'Could not load lesson.' },
+        });
+      }
+    } catch (err) {
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: { type: 'error', message: 'Network error while loading lesson.' },
+      });
+    }
+  };
+
+  // Delete user's own lesson directly from "My Lessons"
+  const handleDeleteOwnLesson = async (e, lessonItem) => {
+    e.stopPropagation();
+    if (!window.confirm(`Remove "${lessonItem.title}" from My Lessons?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/lessons/${lessonItem.id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${auth.token}`,
+        },
+      });
+
+      if (res.ok) {
+        const remaining = lessonsList.filter((l) => l.id !== lessonItem.id);
+        dispatch({
+          type: 'USER_LESSON_DELETED',
+          payload: { deletedId: lessonItem.id, title: lessonItem.title },
+        });
+
+        // If the deleted lesson was currently active, switch to the next lesson or starter demo
+        if (currentLesson?.id === lessonItem.id) {
+          if (remaining.length > 0) {
+            loadLessonById(remaining[0].id);
+          } else {
+            loadLessonById(0);
+          }
+        }
+      } else {
+        const data = await res.json().catch(() => ({}));
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: {
+            type: 'error',
+            message: data.error || 'Could not remove lesson.',
+          },
+        });
+      }
+    } catch (err) {
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: {
+          type: 'error',
+          message: 'Network error while removing lesson.',
+        },
+      });
+    }
+  };
+
+  // Connect Real Google Account via Google OAuth 2.0 Popup
+  const handleConnectRealGoogle = () => {
+    if (!googleClientId) {
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: {
+          type: 'error',
+          message:
+            'To connect a real Google account, add your GOOGLE_CLIENT_ID to backend/.env (from Google Cloud Console).',
+        },
+      });
+      return;
+    }
+
+    if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) {
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: {
+          type: 'error',
+          message: 'Google Identity Services SDK is still loading. Please try again.',
+        },
+      });
+      return;
+    }
+
+    const tokenClient = window.google.accounts.oauth2.initTokenClient({
+      client_id: googleClientId,
+      scope: 'openid email profile',
+      prompt: 'select_account',
+      callback: async (tokenResponse) => {
+        if (tokenResponse.error || !tokenResponse.access_token) return;
+
+        try {
+          const res = await fetch(`${API_BASE}/api/auth/google/connect`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${auth.token}`,
+            },
+            body: JSON.stringify({
+              accessToken: tokenResponse.access_token,
+            }),
+          });
+          const data = await res.json();
+          if (res.ok && data.user) {
+            localStorage.setItem('sk_user', JSON.stringify(data.user));
+            if (data.token) localStorage.setItem('sk_token', data.token);
+            dispatch({
+              type: 'AUTH_UPDATE_USER',
+              payload: { user: data.user, token: data.token },
+            });
+            dispatch({
+              type: 'SET_NOTIFICATION',
+              payload: {
+                type: 'success',
+                message: 'Your Google account has been verified and connected!',
+              },
+            });
+          } else {
+            dispatch({
+              type: 'SET_NOTIFICATION',
+              payload: {
+                type: 'error',
+                message: data.error || 'Could not link Google account.',
+              },
+            });
+          }
+        } catch (err) {
+          dispatch({
+            type: 'SET_NOTIFICATION',
+            payload: {
+              type: 'error',
+              message: 'Server error while verifying Google account.',
+            },
+          });
+        }
+      },
+    });
+
+    tokenClient.requestAccessToken();
+  };
+
+  const handleCreateLesson = async (e) => {
+    e.preventDefault();
+    if (!videoUrlInput.trim() || creatingLesson) return;
+
+    dispatch({ type: 'CREATE_LESSON_START' });
+
+    try {
+      const res = await fetch(`${API_BASE}/api/lessons/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({ videoUrl: videoUrlInput.trim() }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        dispatch({
+          type: 'CREATE_LESSON_FAILURE',
+          payload: data.error || 'Failed to create lesson from this YouTube URL.',
+        });
+        return;
+      }
+
+      dispatch({
+        type: 'CREATE_LESSON_SUCCESS',
+        payload: data,
+      });
+
+      const vocabRes = await fetch(`${API_BASE}/api/vocabulary`, {
+        headers: { Authorization: `Bearer ${auth.token}` },
+      });
+      if (vocabRes.ok) {
+        const vocabData = await vocabRes.json();
+        dispatch({
+          type: 'SET_ALL_SAVED_VOCABULARY',
+          payload: vocabData.vocabulary || [],
+        });
+      }
+    } catch (err) {
+      dispatch({
+        type: 'CREATE_LESSON_FAILURE',
+        payload: 'Server connection error while creating lesson. Make sure backend is running.',
+      });
+    }
+  };
+
+  const handleSentenceClick = (sentence) => {
+    if (!sentence) return;
+    dispatch({ type: 'SET_ACTIVE_SENTENCE', payload: sentence.sentence_index });
+    if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
+      playerRef.current.seekTo(sentence.start_time, true);
+      playerRef.current.playVideo();
+    }
+  };
+
+  const handleChangePlaybackRate = (rate) => {
+    dispatch({ type: 'SET_PLAYBACK_RATE', payload: rate });
+    if (playerRef.current && typeof playerRef.current.setPlaybackRate === 'function') {
+      playerRef.current.setPlaybackRate(rate);
+    }
+  };
+
+  const handleJumpRelativeSentence = (delta) => {
+    const nextIdx = Math.min(
+      sentences.length,
+      Math.max(1, activeSentenceIndex + delta)
+    );
+    const targetSentence = sentences.find((s) => s.sentence_index === nextIdx);
+    if (targetSentence) {
+      handleSentenceClick(targetSentence);
+    }
+  };
+
+  const handleWordClick = (e, rawWord, sentence) => {
+    e.stopPropagation();
+    const cleanWord = rawWord.replace(/[^a-zA-Z0-9'-]/g, '').trim();
+    if (!cleanWord) return;
+
+    speakEnglish(cleanWord, playbackRate);
+
+    const existingMatch = vocabulary.find(
+      (v) => v.word.toLowerCase() === cleanWord.toLowerCase()
+    );
+
+    dispatch({
+      type: 'OPEN_WORD_POPUP',
+      payload: {
+        word: rawWord,
+        cleanWord,
+        sentenceIndex: sentence.sentence_index,
+        contextSentence: sentence.english_text,
+        existingMatch: existingMatch || null,
+      },
+    });
+  };
+
+  const handleSaveWordToVocabulary = async () => {
+    if (!selectedWordPopup || selectedWordPopup.saving) return;
+    dispatch({ type: 'SAVE_WORD_START' });
+
+    const { cleanWord, contextSentence, existingMatch } = selectedWordPopup;
+
+    try {
+      const res = await fetch(`${API_BASE}/api/vocabulary/save`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({
+          lesson_id: currentLesson?.id && currentLesson.id !== 0 ? currentLesson.id : null,
+          word: cleanWord,
+          ipa: existingMatch?.ipa || '',
+          part_of_speech: existingMatch?.part_of_speech || '',
+          khmer_meaning: existingMatch?.khmer_meaning || '',
+          example_sentence: contextSentence,
+          context_sentence: contextSentence,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.word) {
+        dispatch({ type: 'SAVE_WORD_SUCCESS', payload: data.word });
+      } else {
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: {
+            type: 'error',
+            message: data.error || 'Could not save word to vocabulary.',
+          },
+        });
+      }
+    } catch (err) {
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: {
+          type: 'error',
+          message: 'Network error while saving vocabulary word.',
+        },
+      });
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('sk_user');
+    localStorage.removeItem('sk_token');
+    dispatch({ type: 'AUTH_LOGOUT' });
+  };
+
+  if (!auth.user || !auth.token) {
+    return <AuthForm />;
+  }
+
+  const displayedVocabList =
+    vocabView.tab === 'saved' && allSavedVocabulary.length > 0
+      ? allSavedVocabulary
+      : vocabulary;
+
+  const activeFlashcard =
+    displayedVocabList[vocabView.currentCardIndex] || displayedVocabList[0] || null;
+
+  const grammarStages = [
+    'ALL',
+    ...Array.from(new Set(grammarPoints.map((g) => g.stage || 'Stage 1: The basics'))),
+  ];
+
+  const filteredGrammarPoints = grammarPoints.filter((g) => {
+    const matchesStage =
+      grammarFilter.selectedStage === 'ALL' || g.stage === grammarFilter.selectedStage;
+    const q = grammarFilter.searchQuery.trim().toLowerCase();
+    const matchesSearch =
+      !q ||
+      g.title.toLowerCase().includes(q) ||
+      g.explanation_en.toLowerCase().includes(q) ||
+      g.explanation_km.toLowerCase().includes(q) ||
+      g.example_en.toLowerCase().includes(q);
+    return matchesStage && matchesSearch;
+  });
+
+  const sq = sentenceSearchQuery.trim().toLowerCase();
+  const filteredSentences = sentences.filter(
+    (s) =>
+      !sq ||
+      s.english_text.toLowerCase().includes(sq) ||
+      (s.khmer_text && s.khmer_text.toLowerCase().includes(sq))
+  );
+
+  const lq = (myLessonsSearchQuery || '').trim().toLowerCase();
+  const filteredMyLessons = lessonsList.filter(
+    (item) =>
+      !lq ||
+      item.title.toLowerCase().includes(lq) ||
+      (item.video_id && item.video_id.toLowerCase().includes(lq))
+  );
+
+  const completedCount = Object.values(completedSentencesMap).filter(Boolean).length;
+  const progressPercent =
+    sentences.length > 0 ? Math.round((completedCount / sentences.length) * 100) : 0;
+
+  const isAdmin = auth.user.role === 'admin';
+
+  return (
+    <div className="min-h-screen bg-[#FAF9F6] text-slate-900 flex flex-col">
+      {/* =========================================================
+          RESPONSIVE TOP NAVIGATION BAR (MOBILE, TABLET, DESKTOP)
+      ========================================================= */}
+      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200">
+        <div className="max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
+          {/* Left: App Brand & My Lessons Dropdown */}
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+            <button
+              type="button"
+              onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' })}
+              className="flex items-center gap-2 sm:gap-2.5 cursor-pointer shrink-0"
+            >
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#2563EB] flex items-center justify-center text-white shadow-sm">
+                <Headphones className="w-4 h-4 sm:w-5 sm:h-5" />
+              </div>
+              <div className="text-left">
+                <span className="font-extrabold text-base sm:text-lg tracking-tight text-slate-900">
+                  Shadowing<span className="text-[#2563EB]">Khmer</span>
+                </span>
+                <span className="hidden xl:inline-block ml-2 px-2 py-0.5 text-[11px] font-semibold rounded-full bg-blue-50 text-blue-700 border border-blue-100 khmer-text">
+                  អង់គ្លេស-ខ្មែរ
+                </span>
+              </div>
+            </button>
+
+            {/* My Lessons Dropdown Trigger */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => dispatch({ type: 'TOGGLE_LESSONS_DRAWER' })}
+                className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-slate-100/80 hover:bg-slate-200/70 text-slate-700 text-xs sm:text-sm font-semibold transition-all cursor-pointer"
+              >
+                <FolderOpen className="w-4 h-4 text-[#2563EB] shrink-0" />
+                <span className="hidden xs:inline sm:inline">My Lessons</span>
+                <span className="px-1.5 py-0.5 text-[11px] rounded-full bg-white text-slate-700 border border-slate-200">
+                  {lessonsList.length}
+                </span>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+              </button>
+
+              {isLessonsDrawerOpen && (
+                <div className="fixed sm:absolute left-3 right-3 sm:left-0 sm:right-auto mt-2 sm:w-96 rounded-2xl bg-white border border-slate-200 shadow-2xl p-3.5 z-50">
+                  <div className="flex items-center justify-between px-1 pb-2.5 border-b border-slate-100">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                      My Saved Lessons ({lessonsList.length})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => dispatch({ type: 'TOGGLE_LESSONS_DRAWER', payload: false })}
+                      className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Search Input inside My Lessons */}
+                  <div className="relative my-2.5">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Search your saved lessons..."
+                      value={myLessonsSearchQuery}
+                      onChange={(e) =>
+                        dispatch({ type: 'SET_MY_LESSONS_SEARCH', payload: e.target.value })
+                      }
+                      className="w-full pl-9 pr-8 py-2 rounded-xl border border-slate-200 bg-slate-50/70 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                    />
+                    {myLessonsSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          dispatch({ type: 'SET_MY_LESSONS_SEARCH', payload: '' })
+                        }
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="max-h-72 overflow-y-auto space-y-1.5 pr-0.5">
+                    {filteredMyLessons.map((item) => (
+                      <div
+                        key={item.id}
+                        onClick={() => loadLessonById(item.id)}
+                        className={`group w-full text-left px-3 py-2.5 rounded-xl flex items-center justify-between gap-2 transition-all cursor-pointer ${
+                          currentLesson?.id === item.id
+                            ? 'bg-blue-50 text-[#2563EB] font-semibold border border-blue-200'
+                            : 'hover:bg-slate-50 text-slate-700 border border-transparent'
+                        }`}
+                      >
+                        <div className="truncate flex-1 min-w-0">
+                          <div className="text-xs sm:text-sm truncate">{item.title}</div>
+                          <div className="text-[11px] text-slate-400">
+                            Video ID: {item.video_id}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {item.sentence_count !== undefined && (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                              {item.sentence_count} sents
+                            </span>
+                          )}
+
+                          {/* Remove Own Lesson Button */}
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteOwnLesson(e, item)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                            title="Remove this lesson"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
+                    {filteredMyLessons.length === 0 && (
+                      <div className="py-6 text-center text-xs text-slate-400">
+                        {lessonsList.length === 0
+                          ? 'No saved lessons yet. Paste a YouTube link above to create one!'
+                          : 'No lessons match your search.'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Desktop & Tablet Right Actions */}
+          <div className="hidden md:flex items-center gap-2.5">
+            {auth.user.google_id ? (
+              <span
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold"
+                title={`Verified Google Account: ${auth.user.email}`}
+              >
+                <GoogleIcon className="w-3.5 h-3.5" />
+                <span>Google Verified</span>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={handleConnectRealGoogle}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 transition-all cursor-pointer"
+              >
+                <GoogleIcon className="w-3.5 h-3.5" />
+                <span>Connect Google</span>
+              </button>
+            )}
+
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() =>
+                  dispatch({
+                    type: 'SET_ACTIVE_SCREEN',
+                    payload: activeScreen === 'admin' ? 'workspace' : 'admin',
+                  })
+                }
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                  activeScreen === 'admin'
+                    ? 'bg-[#2563EB] text-white border-[#2563EB] shadow-sm'
+                    : 'bg-blue-50 text-[#2563EB] border-blue-200 hover:bg-blue-100'
+                }`}
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                <span>{activeScreen === 'admin' ? 'Shadowing View' : 'Admin Dashboard'}</span>
+              </button>
+            )}
+
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200/80 text-xs font-semibold text-slate-700">
+              {auth.user.avatar_url ? (
+                <img
+                  src={auth.user.avatar_url}
+                  alt={auth.user.username}
+                  className="w-5 h-5 rounded-full object-cover"
+                />
+              ) : (
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+              )}
+              <span className="max-w-[120px] truncate">{auth.user.username}</span>
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                  isAdmin ? 'bg-[#2563EB] text-white' : 'bg-purple-100 text-purple-700'
+                }`}
+              >
+                {isAdmin ? (
+                  <>
+                    <Crown className="w-2.5 h-2.5" /> Admin
+                  </>
+                ) : (
+                  <>
+                    <GraduationCap className="w-2.5 h-2.5" /> Student
+                  </>
+                )}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 text-xs font-semibold text-slate-600 transition-all cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Logout</span>
+            </button>
+          </div>
+
+          {/* Mobile Hamburger Menu Button (< md) */}
+          <div className="flex md:hidden items-center gap-2">
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() =>
+                  dispatch({
+                    type: 'SET_ACTIVE_SCREEN',
+                    payload: activeScreen === 'admin' ? 'workspace' : 'admin',
+                  })
+                }
+                className={`p-2 rounded-xl border text-xs font-semibold ${
+                  activeScreen === 'admin'
+                    ? 'bg-[#2563EB] text-white border-[#2563EB]'
+                    : 'bg-blue-50 text-[#2563EB] border-blue-200'
+                }`}
+                title="Admin Dashboard"
+              >
+                <LayoutDashboard className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => dispatch({ type: 'TOGGLE_MOBILE_MENU' })}
+              className="p-2 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              aria-label="Toggle mobile menu"
+            >
+              {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile Dropdown Drawer (< md) */}
+        {isMobileMenuOpen && (
+          <div className="md:hidden border-t border-slate-100 bg-white px-4 py-4 space-y-3 shadow-lg">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                {auth.user.avatar_url ? (
+                  <img
+                    src={auth.user.avatar_url}
+                    alt={auth.user.username}
+                    className="w-8 h-8 rounded-full object-cover border border-slate-200"
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-blue-100 text-[#2563EB] font-bold text-xs flex items-center justify-center">
+                    {auth.user.username?.slice(0, 2).toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <div className="text-sm font-bold text-slate-900">{auth.user.username}</div>
+                  <div className="text-xs text-slate-500">{auth.user.email}</div>
+                </div>
+              </div>
+
+              <span
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold uppercase ${
+                  isAdmin ? 'bg-[#2563EB] text-white' : 'bg-purple-100 text-purple-700'
+                }`}
+              >
+                {isAdmin ? 'Admin' : 'Student'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              {auth.user.google_id ? (
+                <div className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
+                  <GoogleIcon className="w-3.5 h-3.5" />
+                  <span>Google Verified</span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleConnectRealGoogle}
+                  className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700"
+                >
+                  <GoogleIcon className="w-3.5 h-3.5" />
+                  <span>Connect Google</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-xs font-semibold"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Logout</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </header>
+
+      {/* =========================================================
+          MAIN CONTENT AREA (RESPONSIVE CONTAINER)
+      ========================================================= */}
+      <main className="flex-1 max-w-[1400px] w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5 sm:space-y-6">
+        {activeScreen === 'admin' && isAdmin ? (
+          <AdminDashboard onOpenLesson={(lessonId) => loadLessonById(lessonId)} />
+        ) : (
+          <>
+            {/* Top YouTube Lesson Creator Bar */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-3.5 sm:p-4 shadow-sm">
+              <form
+                onSubmit={handleCreateLesson}
+                className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3"
+              >
+                <div className="relative flex-1">
+                  <Youtube className="w-5 h-5 text-rose-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Paste any YouTube video or Short URL (supports up to 4-minute videos)..."
+                    value={videoUrlInput}
+                    onChange={(e) =>
+                      dispatch({ type: 'SET_VIDEO_URL_INPUT', payload: e.target.value })
+                    }
+                    disabled={creatingLesson}
+                    className="w-full pl-11 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs sm:text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-[#2563EB] transition-all"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={creatingLesson || !videoUrlInput.trim()}
+                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-60 text-white text-xs sm:text-sm font-semibold shadow-sm transition-all cursor-pointer shrink-0"
+                >
+                  {creatingLesson ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Extracting (3–5s)...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span>Create Lesson</span>
+                    </>
+                  )}
+                </button>
+              </form>
+
+              {notification && (
+                <div
+                  className={`mt-3 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-medium flex items-center justify-between gap-3 ${
+                    notification.type === 'error'
+                      ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                      : notification.type === 'info'
+                      ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                      : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  }`}
+                >
+                  <span>{notification.message}</span>
+                  <button
+                    type="button"
+                    onClick={() => dispatch({ type: 'SET_NOTIFICATION', payload: null })}
+                    className="text-current opacity-70 hover:opacity-100 shrink-0"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Lesson Title & Mastery Progress Header */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <h1 className="text-lg sm:text-xl lg:text-2xl font-extrabold text-slate-900 tracking-tight leading-snug">
+                  Shadowing Practice: {currentLesson?.title || 'English Video Lesson'}
+                </h1>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Click any sentence to jump video • Click any word to pronounce & save
+                </p>
+              </div>
+
+              {/* Mastery Progress Pill */}
+              <div className="flex items-center gap-3 bg-white px-4 py-2.5 rounded-2xl border border-slate-200 shadow-sm shrink-0">
+                <div className="text-xs font-bold text-slate-700">
+                  Practiced: <span className="text-[#2563EB]">{completedCount}</span> /{' '}
+                  {sentences.length}
+                </div>
+                <div className="w-24 sm:w-28 h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-[#2563EB] transition-all duration-300"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+                <span className="text-xs font-extrabold text-[#2563EB]">{progressPercent}%</span>
+              </div>
+            </div>
+
+            {/* =========================================================
+                RESPONSIVE SPLIT-SCREEN WORKSPACE
+            ========================================================= */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 items-start">
+              {/* LEFT COLUMN: Video Player + Smart Shadowing Controls + Mode Cards */}
+              <div className="lg:col-span-7 space-y-4 sm:space-y-5">
+                {/* Video Player Container */}
+                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                  <div className="relative bg-black">
+                    <button
+                      type="button"
+                      onClick={() => dispatch({ type: 'TOGGLE_PLAYER_SIZE' })}
+                      className="hidden sm:inline-flex absolute top-3 right-3 z-10 items-center gap-1.5 px-3 py-1 rounded-full bg-white/90 hover:bg-white text-slate-800 text-xs font-semibold shadow-sm transition-all cursor-pointer"
+                    >
+                      <span>{playerSize === 'large' ? 'Large' : 'Compact'}</span>
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+
+                    <div
+                      className={`w-full ${
+                        playerSize === 'large' ? 'aspect-video' : 'aspect-video sm:h-72'
+                      }`}
+                    >
+                      <YouTube
+                        key={`${currentLesson?.id || 0}-${currentLesson?.video_id || 'eIho2S0ZahI'}`}
+                        videoId={currentLesson?.video_id || 'eIho2S0ZahI'}
+                        className="w-full h-full"
+                        iframeClassName="w-full h-full"
+                        opts={{
+                          width: '100%',
+                          height: '100%',
+                          playerVars: {
+                            autoplay: 0,
+                            modestbranding: 1,
+                            rel: 0,
+                            playsinline: 1,
+                          },
+                        }}
+                        onReady={(event) => {
+                          playerRef.current = event.target;
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* NEW FEATURE: Smart Shadowing Control Bar (Prev / Loop / Next / Speed) */}
+                  <div className="p-3 sm:px-4 bg-white border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                    {/* Sentence Step Controls */}
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleJumpRelativeSentence(-1)}
+                        disabled={activeSentenceIndex <= 1}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 disabled:opacity-40 text-xs font-semibold text-slate-700 cursor-pointer"
+                        title="Previous sentence"
+                      >
+                        <SkipBack className="w-3.5 h-3.5" />
+                        <span className="hidden xs:inline">Prev</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSentenceClick(
+                            sentences.find((s) => s.sentence_index === activeSentenceIndex)
+                          )
+                        }
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-[#2563EB] text-xs font-bold cursor-pointer"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        <span>Replay #{activeSentenceIndex}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleJumpRelativeSentence(1)}
+                        disabled={activeSentenceIndex >= sentences.length}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 disabled:opacity-40 text-xs font-semibold text-slate-700 cursor-pointer"
+                        title="Next sentence"
+                      >
+                        <span className="hidden xs:inline">Next</span>
+                        <SkipForward className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Loop Toggle & Playback Speed */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => dispatch({ type: 'TOGGLE_LOOP_SENTENCE' })}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                          isLoopingSentence
+                            ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        }`}
+                        title="Automatically repeat current sentence in a loop"
+                      >
+                        <Repeat className="w-3.5 h-3.5" />
+                        <span>{isLoopingSentence ? 'Looping ON' : 'Loop'}</span>
+                      </button>
+
+                      {/* Speed Buttons: 0.75x, 1x, 1.25x */}
+                      <div className="inline-flex items-center rounded-xl bg-slate-100 p-0.5 border border-slate-200/80">
+                        {[0.75, 1, 1.25].map((rate) => (
+                          <button
+                            key={rate}
+                            type="button"
+                            onClick={() => handleChangePlaybackRate(rate)}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                              playbackRate === rate
+                                ? 'bg-white text-[#2563EB] shadow-sm'
+                                : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                          >
+                            {rate}x
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Mobile Compact Mode Tabs (< sm) */}
+                <div className="grid grid-cols-3 gap-2 p-1.5 bg-white rounded-2xl border border-slate-200 shadow-sm sm:hidden">
+                  <button
+                    type="button"
+                    onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'lesson' })}
+                    className={`py-2.5 px-2 rounded-xl text-xs font-bold flex flex-col items-center gap-1 transition-all ${
+                      practiceMode === 'lesson'
+                        ? 'bg-[#2563EB] text-white shadow-sm'
+                        : 'text-slate-600'
+                    }`}
+                  >
+                    <Mic className="w-4 h-4" />
+                    <span>1. Shadowing ({sentences.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'vocabulary' })}
+                    className={`py-2.5 px-2 rounded-xl text-xs font-bold flex flex-col items-center gap-1 transition-all ${
+                      practiceMode === 'vocabulary'
+                        ? 'bg-[#2563EB] text-white shadow-sm'
+                        : 'text-slate-600'
+                    }`}
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    <span>2. Vocab ({vocabulary.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'grammar' })}
+                    className={`py-2.5 px-2 rounded-xl text-xs font-bold flex flex-col items-center gap-1 transition-all ${
+                      practiceMode === 'grammar'
+                        ? 'bg-[#2563EB] text-white shadow-sm'
+                        : 'text-slate-600'
+                    }`}
+                  >
+                    <GraduationCap className="w-4 h-4" />
+                    <span>3. Grammar ({grammarPoints.length})</span>
+                  </button>
+                </div>
+
+                {/* Tablet & Desktop "Choose a practice mode" Card (>= sm) */}
+                <div className="hidden sm:block bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm">
+                  <div className="text-center mb-4">
+                    <h2 className="text-base sm:text-lg font-extrabold text-slate-900">
+                      Choose a practice mode
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Select a mode below to switch your interactive practice room.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3.5">
+                    <button
+                      type="button"
+                      onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'lesson' })}
+                      className={`group text-center p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col items-center justify-between ${
+                        practiceMode === 'lesson'
+                          ? 'border-[#2563EB] bg-blue-50/30 ring-2 ring-blue-600/15 shadow-sm'
+                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60'
+                      }`}
+                    >
+                      <div className="w-11 h-11 rounded-full bg-blue-100 text-[#2563EB] flex items-center justify-center mb-2.5 group-hover:scale-105 transition-transform">
+                        <Mic className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm text-slate-900">
+                          1. Lesson (Shadowing)
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1 khmer-text">
+                          Listen, repeat & translate to ខ្មែរ
+                        </p>
+                      </div>
+                      <span className="mt-3 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600">
+                        {activeSentenceIndex}/{sentences.length}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        dispatch({ type: 'SET_PRACTICE_MODE', payload: 'vocabulary' })
+                      }
+                      className={`group text-center p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col items-center justify-between ${
+                        practiceMode === 'vocabulary'
+                          ? 'border-[#2563EB] bg-purple-50/30 ring-2 ring-blue-600/15 shadow-sm'
+                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60'
+                      }`}
+                    >
+                      <div className="w-11 h-11 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center mb-2.5 group-hover:scale-105 transition-transform">
+                        <BookOpen className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm text-slate-900">
+                          2. Vocabulary
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Study key words & flashcards
+                        </p>
+                      </div>
+                      <span className="mt-3 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-purple-50 text-purple-700">
+                        {vocabulary.length} words
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'grammar' })}
+                      className={`group text-center p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col items-center justify-between ${
+                        practiceMode === 'grammar'
+                          ? 'border-[#2563EB] bg-rose-50/30 ring-2 ring-blue-600/15 shadow-sm'
+                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60'
+                      }`}
+                    >
+                      <div className="w-11 h-11 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mb-2.5 group-hover:scale-105 transition-transform">
+                        <GraduationCap className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm text-slate-900">
+                          3. Grammar
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Bilingual rules & examples
+                        </p>
+                      </div>
+                      <span className="mt-3 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700">
+                        {grammarPoints.length} rules
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* RIGHT COLUMN: Dynamic Practice Workspace */}
+              <div className="lg:col-span-5">
+                {practiceMode === 'lesson' && (
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    {/* Top Header */}
+                    <div className="p-3.5 sm:px-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-bold text-xs sm:text-sm text-slate-800">
+                        {sentences.length} sentences
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => dispatch({ type: 'TOGGLE_ALL_KHMER' })}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer khmer-text ${
+                          showAllKhmer
+                            ? 'bg-[#2563EB] text-white border-[#2563EB]'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Languages className="w-3.5 h-3.5" />
+                        <span>
+                          {showAllKhmer ? 'លាក់ភាសាខ្មែរ (Hide All)' : 'បង្ហាញខ្មែរទាំងអស់ (ខ្មែរ All)'}
+                        </span>
+                      </button>
+                    </div>
+
+                    {/* Sentence Filter Input */}
+                    <div className="px-3.5 sm:px-4 pt-3">
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Search English or Khmer sentence..."
+                          value={sentenceSearchQuery}
+                          onChange={(e) =>
+                            dispatch({ type: 'SET_SENTENCE_SEARCH', payload: e.target.value })
+                          }
+                          className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 bg-slate-50/70 text-xs focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Clicked Word Popup Bar */}
+                    {selectedWordPopup && (
+                      <div className="mx-3.5 sm:mx-4 mt-3 p-3 rounded-xl bg-blue-50/90 border border-blue-200 flex flex-wrap items-center justify-between gap-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <button
+                            type="button"
+                            onClick={() => speakEnglish(selectedWordPopup.cleanWord, playbackRate)}
+                            className="w-8 h-8 rounded-lg bg-[#2563EB] text-white flex items-center justify-center shadow-sm hover:bg-blue-700 cursor-pointer shrink-0"
+                            title="Pronounce word"
+                          >
+                            <Volume2 className="w-4 h-4" />
+                          </button>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-sm text-slate-900">
+                                {selectedWordPopup.cleanWord}
+                              </span>
+                              {selectedWordPopup.existingMatch?.ipa && (
+                                <span className="text-xs text-slate-500 font-mono">
+                                  {selectedWordPopup.existingMatch.ipa}
+                                </span>
+                              )}
+                            </div>
+                            {selectedWordPopup.existingMatch?.khmer_meaning && (
+                              <div className="text-xs font-medium text-blue-800 khmer-text">
+                                {selectedWordPopup.existingMatch.khmer_meaning}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={selectedWordPopup.saving || selectedWordPopup.saved}
+                            onClick={handleSaveWordToVocabulary}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                              selectedWordPopup.saved
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-[#2563EB] hover:bg-blue-700 text-white'
+                            }`}
+                          >
+                            {selectedWordPopup.saving ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <span>Saving...</span>
+                              </>
+                            ) : selectedWordPopup.saved ? (
+                              <>
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Saved!</span>
+                              </>
+                            ) : (
+                              <>
+                                <BookmarkPlus className="w-3.5 h-3.5" />
+                                <span>Save to Vocab</span>
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => dispatch({ type: 'CLOSE_WORD_POPUP' })}
+                            className="p-1 text-slate-400 hover:text-slate-700"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Sentence Rows List */}
+                    <div className="divide-y divide-slate-100 max-h-[500px] lg:max-h-[560px] overflow-y-auto mt-2">
+                      {filteredSentences.map((s) => {
+                        const isActive = activeSentenceIndex === s.sentence_index;
+                        const isKhmerShown = !!visibleKhmerMap[s.sentence_index];
+                        const isCompleted = !!completedSentencesMap[s.sentence_index];
+                        const words = s.english_text.split(' ');
+
+                        return (
+                          <div
+                            key={s.id || s.sentence_index}
+                            onClick={() => handleSentenceClick(s)}
+                            className={`p-3.5 sm:px-5 transition-all cursor-pointer flex items-start gap-2.5 sm:gap-3.5 ${
+                              isActive
+                                ? 'bg-blue-50/70 border-l-4 border-[#2563EB]'
+                                : 'hover:bg-slate-50/90'
+                            }`}
+                          >
+                            {/* Sentence Index Badge */}
+                            <div
+                              className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full text-xs font-bold flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+                                isActive
+                                  ? 'bg-[#2563EB] text-white shadow-sm'
+                                  : isCompleted
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              {s.sentence_index}
+                            </div>
+
+                            {/* English Text + Khmer Box */}
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs sm:text-[15px] font-medium text-slate-900 leading-relaxed flex flex-wrap gap-x-1">
+                                {words.map((word, wIdx) => (
+                                  <span
+                                    key={wIdx}
+                                    onClick={(e) => handleWordClick(e, word, s)}
+                                    className="hover:bg-blue-100/80 hover:text-[#2563EB] rounded px-0.5 transition-colors cursor-pointer"
+                                    title="Click to pronounce or save word"
+                                  >
+                                    {word}
+                                  </span>
+                                ))}
+                              </div>
+
+                              <div className="mt-1.5 flex items-center gap-2 text-[11px] text-slate-400">
+                                <span>
+                                  {formatTime(s.start_time)} - {formatTime(s.end_time)}
+                                </span>
+                              </div>
+
+                              {isKhmerShown && (
+                                <div className="mt-2.5 p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/70 text-slate-800 text-xs sm:text-sm khmer-text">
+                                  {s.khmer_text}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Right Action Buttons: Mark Complete, Speak, Khmer Toggle */}
+                            <div
+                              className="flex items-center gap-1 shrink-0"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  dispatch({
+                                    type: 'TOGGLE_COMPLETE_SENTENCE',
+                                    payload: s.sentence_index,
+                                  })
+                                }
+                                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                  isCompleted
+                                    ? 'text-emerald-600 bg-emerald-50'
+                                    : 'text-slate-300 hover:text-emerald-600'
+                                }`}
+                                title="Mark sentence as practiced"
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => speakEnglish(s.english_text, playbackRate)}
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-[#2563EB] hover:bg-blue-50 transition-colors cursor-pointer"
+                                title="Listen to sentence"
+                              >
+                                <Volume2 className="w-4 h-4" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  dispatch({
+                                    type: 'TOGGLE_SENTENCE_KHMER',
+                                    payload: s.sentence_index,
+                                  })
+                                }
+                                className={`px-2 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer khmer-text ${
+                                  isKhmerShown
+                                    ? 'bg-[#2563EB] text-white border-[#2563EB]'
+                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                }`}
+                              >
+                                ខ្មែរ
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {practiceMode === 'vocabulary' && (
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-4 sm:space-y-5">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h2 className="text-base sm:text-lg font-extrabold text-slate-900 flex items-center gap-2">
+                          <span>📚 My Vocabulary</span>
+                        </h2>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Save words while you practice, then review them daily with flashcards.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => dispatch({ type: 'TOGGLE_FLASHCARD_MODE' })}
+                        className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                          vocabView.isFlashcardMode
+                            ? 'bg-[#2563EB] text-white shadow-sm'
+                            : 'bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100'
+                        }`}
+                      >
+                        <Layers className="w-3.5 h-3.5" />
+                        <span>
+                          {vocabView.isFlashcardMode ? 'Exit Flashcards' : 'Flashcard Practice'}
+                        </span>
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+                      <button
+                        type="button"
+                        onClick={() => dispatch({ type: 'SET_VOCAB_TAB', payload: 'lesson' })}
+                        className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                          vocabView.tab === 'lesson'
+                            ? 'border-[#2563EB] bg-blue-50/40'
+                            : 'border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="text-xs font-bold text-slate-800">Lesson Vocabulary</div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          Key words from this video
+                        </div>
+                        <span className="mt-2 inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-100 text-[#2563EB]">
+                          {vocabulary.length} words
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => dispatch({ type: 'SET_VOCAB_TAB', payload: 'saved' })}
+                        className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                          vocabView.tab === 'saved'
+                            ? 'border-[#2563EB] bg-blue-50/40'
+                            : 'border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="text-xs font-bold text-slate-800">My Saved Deck</div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          All words saved across lessons
+                        </div>
+                        <span className="mt-2 inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-100 text-purple-700">
+                          {allSavedVocabulary.length} saved
+                        </span>
+                      </button>
+                    </div>
+
+                    {vocabView.isFlashcardMode && activeFlashcard ? (
+                      <div className="space-y-4">
+                        <div
+                          onClick={() => dispatch({ type: 'FLIP_FLASHCARD' })}
+                          className="min-h-[230px] sm:min-h-[250px] p-5 sm:p-6 rounded-2xl border-2 border-dashed border-blue-200 bg-gradient-to-br from-blue-50/50 via-white to-purple-50/40 flex flex-col items-center justify-center text-center cursor-pointer select-none transition-all hover:border-[#2563EB]"
+                        >
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                            Card {vocabView.currentCardIndex + 1} of {displayedVocabList.length} •{' '}
+                            {vocabView.isFlipped ? 'Khmer Meaning (Back)' : 'English Word (Front)'}
+                          </span>
+
+                          {!vocabView.isFlipped ? (
+                            <>
+                              <h3 className="text-xl sm:text-2xl font-extrabold text-slate-900">
+                                {activeFlashcard.word}
+                              </h3>
+                              <div className="flex items-center gap-2 mt-2">
+                                {activeFlashcard.ipa && (
+                                  <span className="text-xs font-mono text-slate-500">
+                                    {activeFlashcard.ipa}
+                                  </span>
+                                )}
+                                {activeFlashcard.part_of_speech && (
+                                  <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
+                                    {activeFlashcard.part_of_speech}
+                                  </span>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  speakEnglish(activeFlashcard.word, playbackRate);
+                                }}
+                                className="mt-4 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#2563EB] text-white text-xs font-semibold shadow-sm hover:bg-blue-700"
+                              >
+                                <Volume2 className="w-3.5 h-3.5" />
+                                <span>Listen (en-US)</span>
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <div className="text-xl sm:text-2xl font-bold text-[#2563EB] khmer-text">
+                                {activeFlashcard.khmer_meaning}
+                              </div>
+                              {activeFlashcard.example_sentence && (
+                                <p className="mt-3 text-xs sm:text-sm text-slate-600 italic max-w-md">
+                                  "{activeFlashcard.example_sentence}"
+                                </p>
+                              )}
+                            </>
+                          )}
+
+                          <span className="mt-5 inline-flex items-center gap-1 text-xs text-slate-400">
+                            <RotateCw className="w-3.5 h-3.5" /> Tap card to flip
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            disabled={vocabView.currentCardIndex === 0}
+                            onClick={() =>
+                              dispatch({
+                                type: 'CHANGE_FLASHCARD_INDEX',
+                                payload: Math.max(0, vocabView.currentCardIndex - 1),
+                              })
+                            }
+                            className="inline-flex items-center gap-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
+                          >
+                            <ChevronLeft className="w-4 h-4" /> Prev
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => dispatch({ type: 'FLIP_FLASHCARD' })}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-800 cursor-pointer"
+                          >
+                            <RotateCw className="w-3.5 h-3.5" /> Flip
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={
+                              vocabView.currentCardIndex >= displayedVocabList.length - 1
+                            }
+                            onClick={() =>
+                              dispatch({
+                                type: 'CHANGE_FLASHCARD_INDEX',
+                                payload: Math.min(
+                                  displayedVocabList.length - 1,
+                                  vocabView.currentCardIndex + 1
+                                ),
+                              })
+                            }
+                            className="inline-flex items-center gap-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
+                          >
+                            Next <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1">
+                        {displayedVocabList.map((item, idx) => (
+                          <div
+                            key={item.id || idx}
+                            className="p-3.5 sm:p-4 rounded-2xl border border-slate-200 bg-slate-50/40 hover:bg-white hover:shadow-sm transition-all"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="font-bold text-sm sm:text-base text-slate-900">
+                                    {item.word}
+                                  </span>
+                                  {item.ipa && (
+                                    <span className="text-xs font-mono text-slate-500">
+                                      {item.ipa}
+                                    </span>
+                                  )}
+                                  {item.part_of_speech && (
+                                    <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-100 text-purple-700">
+                                      {item.part_of_speech}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="mt-1.5 text-sm font-semibold text-[#2563EB] khmer-text">
+                                  {item.khmer_meaning}
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => speakEnglish(item.word, playbackRate)}
+                                className="w-9 h-9 rounded-xl bg-blue-50 hover:bg-[#2563EB] text-[#2563EB] hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                                title="Pronounce word (en-US)"
+                              >
+                                <Volume2 className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            {item.example_sentence && (
+                              <div className="mt-2.5 pt-2.5 border-t border-slate-200/60 flex items-center justify-between gap-2 text-xs text-slate-600">
+                                <span className="italic">"{item.example_sentence}"</span>
+                                <button
+                                  type="button"
+                                  onClick={() => speakEnglish(item.example_sentence, playbackRate)}
+                                  className="text-slate-400 hover:text-[#2563EB] shrink-0"
+                                  title="Listen to example"
+                                >
+                                  <Play className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {practiceMode === 'grammar' && (
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-4 sm:space-y-5">
+                    <div>
+                      <h2 className="text-base sm:text-lg font-extrabold text-slate-900 flex items-center gap-2">
+                        <span>📘 English grammar</span>
+                      </h2>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Every structure you'll hear in this lesson — with English form, Khmer
+                        explanation (ការពន្យល់ជាភាសាខ្មែរ), and bilingual examples.
+                      </p>
+                    </div>
+
+                    <div className="relative">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search a structure: present simple, be, phrasal verbs..."
+                        value={grammarFilter.searchQuery}
+                        onChange={(e) =>
+                          dispatch({ type: 'SET_GRAMMAR_SEARCH', payload: e.target.value })
+                        }
+                        className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 bg-slate-50/60 text-xs sm:text-sm focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                      {grammarStages.map((stage) => (
+                        <button
+                          key={stage}
+                          type="button"
+                          onClick={() => dispatch({ type: 'SET_GRAMMAR_STAGE', payload: stage })}
+                          className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                            grammarFilter.selectedStage === stage
+                              ? 'bg-[#2563EB] text-white'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          {stage === 'ALL' ? 'All Stages' : stage}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="space-y-4 max-h-[460px] overflow-y-auto pr-1">
+                      {filteredGrammarPoints.map((g, idx) => (
+                        <div
+                          key={g.id || idx}
+                          className="p-4 sm:p-5 rounded-2xl border border-blue-200/80 bg-white shadow-sm space-y-3"
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="w-7 h-7 rounded-full bg-[#2563EB] text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
+                              {idx + 1}
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
+                                  {g.title}
+                                </h3>
+                                <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  {g.stage || 'Stage 1: The basics'}
+                                </span>
+                              </div>
+
+                              <p className="text-xs sm:text-sm text-slate-600 mt-1.5 leading-relaxed">
+                                {g.explanation_en}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/80">
+                            <div className="text-[11px] font-bold text-amber-800 uppercase tracking-wider mb-1 khmer-text">
+                              ការពន្យល់ជាភាសាខ្មែរ (Khmer Explanation)
+                            </div>
+                            <p className="text-xs sm:text-sm text-slate-800 khmer-text">
+                              {g.explanation_km}
+                            </p>
+                          </div>
+
+                          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 flex items-start justify-between gap-3">
+                            <div className="space-y-1">
+                              <div className="text-xs sm:text-sm font-semibold text-slate-900">
+                                "{g.example_en}"
+                              </div>
+                              <div className="text-xs sm:text-sm text-[#2563EB] khmer-text">
+                                {g.example_km}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => speakEnglish(g.example_en, playbackRate)}
+                              className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-[#2563EB] hover:bg-blue-50 flex items-center justify-center shrink-0 cursor-pointer"
+                              title="Listen to example sentence"
+                            >
+                              <Volume2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </main>
+
+      {/* =========================================================
+          AUTHOR & CONTACT INFORMATION FOOTER
+      ========================================================= */}
+      <Footer />
+    </div>
+  );
+}
