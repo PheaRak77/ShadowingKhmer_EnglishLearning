@@ -6,8 +6,10 @@ dotenv.config();
 
 const { Pool } = pg;
 
-const connectionString =
+const rawConnectionString =
   process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/english_learning';
+
+const connectionString = rawConnectionString.replace('&channel_binding=require', '');
 
 const isLocalDb =
   connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
