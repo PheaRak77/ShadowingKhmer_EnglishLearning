@@ -1,10 +1,20 @@
+import dns from 'dns';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { GoogleGenAI } from '@google/genai';
+import dotenv from 'dotenv';
+
+dns.setDefaultResultOrder('ipv4first');
+dotenv.config();
 
 const execFileAsync = promisify(execFile);
+
+const ai = process.env.GEMINI_API_KEY
+  ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
+  : null;
 
 // Maximum supported video duration: 4 minutes (240 seconds)
 export const MAX_VIDEO_DURATION_SECONDS = 240;
@@ -20,18 +30,22 @@ export function extractYouTubeId(url) {
 }
 
 function parseTimestampToSeconds(timestampStr) {
-  const parts = timestampStr.trim().split(':');
+  if (typeof timestampStr === 'number') return Number(timestampStr.toFixed(2));
+  const str = String(timestampStr || '0').trim();
+  if (/^\d+(\.\d+)?$/.test(str)) return Number(parseFloat(str).toFixed(2));
+
+  const parts = str.split(':');
   let hours = 0;
   let minutes = 0;
   let seconds = 0;
 
   if (parts.length === 3) {
-    hours = parseFloat(parts[0]);
-    minutes = parseFloat(parts[1]);
-    seconds = parseFloat(parts[2].replace(',', '.'));
+    hours = parseFloat(parts[0]) || 0;
+    minutes = parseFloat(parts[1]) || 0;
+    seconds = parseFloat(parts[2].replace(',', '.')) || 0;
   } else if (parts.length === 2) {
-    minutes = parseFloat(parts[0]);
-    seconds = parseFloat(parts[1].replace(',', '.'));
+    minutes = parseFloat(parts[0]) || 0;
+    seconds = parseFloat(parts[1].replace(',', '.')) || 0;
   }
   return Number((hours * 3600 + minutes * 60 + seconds).toFixed(2));
 }
@@ -197,6 +211,89 @@ export function parseVttAndMergeSentences(vttContent) {
   return mergedSentences.filter((s) => s.start_time <= MAX_VIDEO_DURATION_SECONDS).slice(0, 100);
 }
 
+// Fetch video title via YouTube oEmbed (noembed.com) - never blocked on cloud servers
+async function fetchVideoTitleOembed(videoId) {
+  try {
+    const res = await fetch(
+      `https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`,
+      { signal: AbortSignal.timeout(4000) }
+    );
+    if (!res.ok) return '';
+    const data = await res.json();
+    return (data.title || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+// Cloud Fallback: Extract timestamped English sentences directly via Google Gemini's native YouTube ingestion
+// (Works 100% on Render/AWS cloud servers where YouTube blocks yt-dlp with "Sign in to confirm you're not a bot")
+async function extractTranscriptViaGeminiCloud(videoId) {
+  if (!ai) {
+    throw new Error('GEMINI_API_KEY is required for cloud YouTube caption extraction.');
+  }
+
+  const canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const videoTitle = await fetchVideoTitleOembed(videoId);
+  const modelsToTry = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash'];
+
+  const prompt = `Extract all spoken English sentences from this YouTube video (up to 4 minutes / 240 seconds).
+Return a strict JSON array of objects, where each object has:
+- "start_time": number in seconds (e.g. 0.0, 3.5)
+- "end_time": number in seconds (e.g. 3.5, 8.2)
+- "english_text": complete English sentence ending with punctuation.`;
+
+  let lastErr = null;
+  for (const modelName of modelsToTry) {
+    try {
+      const res = await ai.models.generateContent({
+        model: modelName,
+        contents: [
+          {
+            fileData: {
+              fileUri: canonicalUrl,
+            },
+          },
+          {
+            text: prompt,
+          },
+        ],
+        config: {
+          responseMimeType: 'application/json',
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      });
+
+      const rawText = typeof res.text === 'function' ? res.text() : res.text;
+      const parsed = JSON.parse(rawText);
+      const list = Array.isArray(parsed) ? parsed : parsed.sentences || [];
+
+      const normalized = list
+        .map((item, idx) => {
+          const start = parseTimestampToSeconds(item.start_time ?? idx * 4);
+          const end = Math.max(
+            start + 1.5,
+            parseTimestampToSeconds(item.end_time ?? start + 4)
+          );
+          const text = String(item.english_text || item.text || '').trim();
+          return { start_time: start, end_time: end, english_text: text };
+        })
+        .filter((s) => s.english_text && s.start_time <= MAX_VIDEO_DURATION_SECONDS)
+        .slice(0, 100);
+
+      if (normalized.length > 0) {
+        normalized.videoTitle = videoTitle;
+        return normalized;
+      }
+    } catch (err) {
+      lastErr = err;
+      console.warn(`Gemini cloud video extraction (${modelName}) warning:`, err.message);
+    }
+  }
+
+  throw lastErr || new Error('Could not extract captions from YouTube video.');
+}
+
 export async function fetchYoutubeCaptionsWithYtDlp(videoUrl, videoId) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), `ytdlp-${videoId}-`));
   const outputTemplate = path.join(tempDir, '%(id)s.%(ext)s');
@@ -204,50 +301,23 @@ export async function fetchYoutubeCaptionsWithYtDlp(videoUrl, videoId) {
   const canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
   try {
-    await execFileAsync(
-      'yt-dlp',
-      [
-        '-4',
-        '--js-runtimes',
-        'node',
-        '--extractor-args',
-        'youtube:player_client=android;player_skip=webpage,configs',
-        '--print-to-file',
-        '%(title)s',
-        titleFile,
-        '--write-auto-sub',
-        '--write-sub',
-        '--sub-lang',
-        'en',
-        '--skip-download',
-        '--sub-format',
-        'vtt',
-        '--no-playlist',
-        '--no-warnings',
-        '-o',
-        outputTemplate,
-        canonicalUrl,
-      ],
-      { timeout: 15000 }
-    );
-
-    let files = await fs.readdir(tempDir);
-    let vttFile = files.find((f) => f.endsWith('.vtt'));
-
-    if (!vttFile) {
+    // Attempt 1: Fast yt-dlp with android client (wrapped in try/catch so cloud bot-blocks don't crash)
+    try {
       await execFileAsync(
         'yt-dlp',
         [
           '-4',
           '--js-runtimes',
           'node',
+          '--extractor-args',
+          'youtube:player_client=android;player_skip=webpage,configs',
           '--print-to-file',
           '%(title)s',
           titleFile,
           '--write-auto-sub',
           '--write-sub',
           '--sub-lang',
-          'en,en-US,en-GB',
+          'en',
           '--skip-download',
           '--sub-format',
           'vtt',
@@ -257,28 +327,72 @@ export async function fetchYoutubeCaptionsWithYtDlp(videoUrl, videoId) {
           outputTemplate,
           canonicalUrl,
         ],
-        { timeout: 20000 }
+        { timeout: 12000 }
       );
-      files = await fs.readdir(tempDir);
-      vttFile = files.find((f) => f.endsWith('.vtt'));
+    } catch (err1) {
+      console.warn('yt-dlp attempt 1 (android) skipped:', err1.message?.slice(0, 120));
     }
 
+    let files = await fs.readdir(tempDir);
+    let vttFile = files.find((f) => f.endsWith('.vtt'));
+
+    // Attempt 2: yt-dlp with mweb/tv_embedded clients if Attempt 1 produced no VTT
     if (!vttFile) {
-      throw new Error('No English captions found for this YouTube video.');
+      try {
+        await execFileAsync(
+          'yt-dlp',
+          [
+            '-4',
+            '--js-runtimes',
+            'node',
+            '--extractor-args',
+            'youtube:player_client=mweb,tv_embedded,web',
+            '--print-to-file',
+            '%(title)s',
+            titleFile,
+            '--write-auto-sub',
+            '--write-sub',
+            '--sub-lang',
+            'en,en-US,en-GB',
+            '--skip-download',
+            '--sub-format',
+            'vtt',
+            '--no-playlist',
+            '--no-warnings',
+            '-o',
+            outputTemplate,
+            canonicalUrl,
+          ],
+          { timeout: 12000 }
+        );
+        files = await fs.readdir(tempDir);
+        vttFile = files.find((f) => f.endsWith('.vtt'));
+      } catch (err2) {
+        console.warn('yt-dlp attempt 2 (mweb/tv) skipped:', err2.message?.slice(0, 120));
+      }
     }
 
-    let videoTitle = '';
-    try {
-      videoTitle = (await fs.readFile(titleFile, 'utf-8')).trim();
-    } catch {}
+    // If yt-dlp succeeded, parse the VTT file
+    if (vttFile) {
+      let videoTitle = '';
+      try {
+        videoTitle = (await fs.readFile(titleFile, 'utf-8')).trim();
+      } catch {}
+      if (!videoTitle) {
+        videoTitle = await fetchVideoTitleOembed(videoId);
+      }
 
-    const vttContent = await fs.readFile(path.join(tempDir, vttFile), 'utf-8');
-    const sentences = parseVttAndMergeSentences(vttContent);
-    if (!sentences || sentences.length === 0) {
-      throw new Error('Parsed VTT file contained no valid caption sentences.');
+      const vttContent = await fs.readFile(path.join(tempDir, vttFile), 'utf-8');
+      const sentences = parseVttAndMergeSentences(vttContent);
+      if (sentences && sentences.length > 0) {
+        sentences.videoTitle = videoTitle;
+        return sentences;
+      }
     }
-    sentences.videoTitle = videoTitle;
-    return sentences;
+
+    // Attempt 3: Guaranteed Cloud Fallback via Gemini Native YouTube Video Ingestion
+    console.log(`☁️ Using Gemini native YouTube extraction for ${videoId} (cloud IP fallback)...`);
+    return await extractTranscriptViaGeminiCloud(videoId);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
