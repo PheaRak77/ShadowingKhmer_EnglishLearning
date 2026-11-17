@@ -288,19 +288,27 @@ Include 6 key vocabulary words and 3 grammar rules.`;
     return { parsed, normalized, modelName };
   };
 
-  // Race the 2 fastest Gemini models simultaneously — whichever responds first wins!
+  // Race batch 1 (3 independent Gemini models simultaneously) — whichever responds first wins!
   let winner;
   try {
     winner = await Promise.any([
+      callSingleModel('gemini-3-flash-preview'),
       callSingleModel('gemini-3.5-flash'),
-      callSingleModel('gemini-3.6-flash'),
+      callSingleModel('gemini-3.7-flash'),
     ]);
   } catch {
-    // Fallback to 3.7 / 3.8 if both primary models failed
-    winner = await Promise.any([
-      callSingleModel('gemini-3.7-flash'),
-      callSingleModel('gemini-3.8-flash'),
-    ]);
+    try {
+      // Batch 2 fallback across remaining Gemini models
+      winner = await Promise.any([
+        callSingleModel('gemini-flash-latest'),
+        callSingleModel('gemini-3.8-flash'),
+        callSingleModel('gemini-3.6-flash'),
+      ]);
+    } catch {
+      throw new Error(
+        'AI server is temporarily busy (high demand). Please wait 5 seconds and click Create Lesson again.'
+      );
+    }
   }
 
   const videoTitle = await titlePromise;

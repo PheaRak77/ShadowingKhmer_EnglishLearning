@@ -184,6 +184,7 @@ export const initialState = {
     searchQuery: '',
   },
   lessonsList: [],
+  lessonCache: { 0: DEMO_LESSON_DATA },
   myLessonsSearchQuery: '',
   isLessonsDrawerOpen: false,
   currentLesson: DEMO_LESSON_DATA.lesson,
@@ -595,6 +596,10 @@ export function appReducer(state, action) {
         vocabulary,
         grammarPoints: grammar_points,
         lessonsList: updatedList,
+        lessonCache: {
+          ...state.lessonCache,
+          [lesson.id]: { lesson, sentences, vocabulary, grammar_points },
+        },
         practiceMode: 'lesson',
         activeSentenceIndex: 1,
         visibleKhmerMap: autoKhmerMap,
@@ -643,6 +648,12 @@ export function appReducer(state, action) {
         sentences: sentences || [],
         vocabulary: vocabulary || [],
         grammarPoints: grammar_points || [],
+        lessonCache: {
+          ...state.lessonCache,
+          ...(lesson?.id !== undefined
+            ? { [lesson.id]: { lesson, sentences, vocabulary, grammar_points } }
+            : {}),
+        },
         activeSentenceIndex: 1,
         visibleKhmerMap: autoKhmerMap,
         showAllKhmer: true,

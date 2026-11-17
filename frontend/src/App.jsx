@@ -128,6 +128,7 @@ export default function App() {
     activeScreen,
     isMobileMenuOpen,
     lessonsList,
+    lessonCache,
     myLessonsSearchQuery,
     isLessonsDrawerOpen,
     currentLesson,
@@ -313,6 +314,16 @@ export default function App() {
         type: 'LOAD_LESSON_SUCCESS',
         payload: DEMO_LESSON_DATA,
       });
+      return;
+    }
+
+    // Instant 0ms switch if this lesson is already cached in memory
+    if (lessonCache && lessonCache[lessonId]) {
+      dispatch({
+        type: 'LOAD_LESSON_SUCCESS',
+        payload: lessonCache[lessonId],
+      });
+      dispatch({ type: 'TOGGLE_LESSONS_DRAWER', payload: false });
       return;
     }
 
