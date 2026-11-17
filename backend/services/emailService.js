@@ -5,9 +5,11 @@ dotenv.config();
 
 /**
  * Send a 6-digit password reset OTP to the user's real email address.
- * Supports:
- *   1. Gmail SMTP (SMTP_EMAIL + SMTP_APP_PASSWORD)
- *   2. Resend HTTP API (RESEND_API_KEY)
+ * Prioritizes HTTPS APIs (port 443) because Render Free Tier blocks outbound SMTP ports 465/587.
+ *   1. Brevo HTTP API (BREVO_API_KEY) - Free 300 emails/day to ANY email, no custom domain needed
+ *   2. Resend HTTP API (RESEND_API_KEY) - Free 3,000 emails/month
+ *   3. Custom HTTPS Webhook (EMAIL_WEBHOOK_URL, e.g., Google Apps Script using your Gmail)
+ *   4. Gmail SMTP (SMTP_EMAIL + SMTP_APP_PASSWORD) - Works locally & on VPS/paid servers
  */
 export async function sendResetOtpEmail(toEmail, username, otpCode) {
   dotenv.config({ override: true });
@@ -36,7 +38,74 @@ export async function sendResetOtpEmail(toEmail, username, otpCode) {
     </div>
   `;
 
-  // Option 1: Gmail SMTP (via nodemailer with IPv4 + 465 SSL + connection pool for <1s speed)
+  // 1. Brevo HTTP API (Works 100% on Render Free over HTTPS port 443 in < 0.5s)
+  const brevoKey = (process.env.BREVO_API_KEY || '').trim();
+  if (brevoKey && !brevoKey.startsWith('your_')) {
+    const senderEmail = (process.env.SMTP_EMAIL || 'yornpheareak168@gmail.com').trim();
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': brevoKey,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        sender: { name: 'ShadowingKhmer', email: senderEmail },
+        to: [{ email: toEmail, name: username || toEmail }],
+        subject,
+        htmlContent: htmlBody,
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Brevo API error: ${errText}`);
+    }
+    return { sent: true, provider: 'brevo' };
+  }
+
+  // 2. Resend HTTP API (Works 100% on Render Free over HTTPS port 443)
+  const resendKey = (process.env.RESEND_API_KEY || '').trim();
+  if (resendKey && !resendKey.startsWith('your_')) {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${resendKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: process.env.RESEND_FROM || 'ShadowingKhmer <onboarding@resend.dev>',
+        to: [toEmail],
+        subject,
+        html: htmlBody,
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Resend API error: ${errText}`);
+    }
+    return { sent: true, provider: 'resend' };
+  }
+
+  // 3. Google Apps Script / Custom HTTPS Webhook
+  const webhookUrl = (process.env.EMAIL_WEBHOOK_URL || '').trim();
+  if (webhookUrl && webhookUrl.startsWith('https://')) {
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: toEmail, subject, html: htmlBody, code: otpCode }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      throw new Error(`Webhook email error: ${res.status}`);
+    }
+    return { sent: true, provider: 'webhook' };
+  }
+
+  // 4. Gmail SMTP (Works locally; note: Render Free blocks outbound SMTP ports 465/587)
   const smtpEmail = (process.env.SMTP_EMAIL || '').trim();
   const smtpPass = (process.env.SMTP_APP_PASSWORD || '').replace(/\s+/g, '');
   if (smtpEmail && smtpPass && !smtpPass.startsWith('your_')) {
@@ -45,9 +114,9 @@ export async function sendResetOtpEmail(toEmail, username, otpCode) {
       port: 465,
       secure: true,
       family: 4,
-      connectionTimeout: 8000,
-      greetingTimeout: 8000,
-      socketTimeout: 10000,
+      connectionTimeout: 7000,
+      greetingTimeout: 7000,
+      socketTimeout: 8000,
       auth: {
         user: smtpEmail,
         pass: smtpPass,
@@ -64,31 +133,5 @@ export async function sendResetOtpEmail(toEmail, username, otpCode) {
     return { sent: true, provider: 'gmail' };
   }
 
-  // Option 2: Resend HTTP API
-  const resendKey = (process.env.RESEND_API_KEY || '').trim();
-  if (resendKey && !resendKey.startsWith('your_')) {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${resendKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: process.env.RESEND_FROM || 'ShadowingKhmer <onboarding@resend.dev>',
-        to: [toEmail],
-        subject,
-        html: htmlBody,
-      }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Resend API error: ${errText}`);
-    }
-
-    return { sent: true, provider: 'resend' };
-  }
-
   return { sent: false };
 }
-

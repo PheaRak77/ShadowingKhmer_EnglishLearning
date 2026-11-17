@@ -237,7 +237,7 @@ export const AuthController = {
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       await UserModel.saveResetCode(email, resetCode, expiresAt);
 
-      // Check if email credentials are configured, then dispatch email asynchronously for instant (<0.2s) UI response
+      // Check if any email provider is configured
       const hasSmtp =
         (process.env.SMTP_EMAIL || '').trim() &&
         (process.env.SMTP_APP_PASSWORD || '').trim() &&
@@ -245,11 +245,15 @@ export const AuthController = {
       const hasResend =
         (process.env.RESEND_API_KEY || '').trim() &&
         !(process.env.RESEND_API_KEY || '').startsWith('your_');
+      const hasBrevo =
+        (process.env.BREVO_API_KEY || '').trim() &&
+        !(process.env.BREVO_API_KEY || '').startsWith('your_');
+      const hasWebhook = (process.env.EMAIL_WEBHOOK_URL || '').trim().startsWith('https://');
 
-      if (!hasSmtp && !hasResend) {
+      if (!hasSmtp && !hasResend && !hasBrevo && !hasWebhook) {
         return res.status(503).json({
           error:
-            'Real email OTP sender is not configured yet. Please add SMTP_EMAIL & SMTP_APP_PASSWORD in Render Environment Variables.',
+            'Real email OTP sender is not configured yet. Please add BREVO_API_KEY or RESEND_API_KEY in Render Environment Variables.',
         });
       }
 
