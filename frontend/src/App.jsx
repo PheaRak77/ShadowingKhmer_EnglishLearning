@@ -35,6 +35,7 @@ import {
   Eye,
   EyeOff,
   Award,
+  Lock,
 } from 'lucide-react';
 import { useAppContext, DEMO_LESSON_DATA } from './reducer/appReducer.js';
 import AuthForm, { GoogleIcon } from './components/AuthForm.jsx';
@@ -69,6 +70,7 @@ export default function App() {
   const {
     auth,
     googleClientId,
+    isAuthModalOpen,
     activeScreen,
     isMobileMenuOpen,
     lessonsList,
@@ -408,6 +410,10 @@ export default function App() {
 
   const handleCreateLesson = async (e) => {
     e.preventDefault();
+    if (isGuest) {
+      dispatch({ type: 'OPEN_AUTH_MODAL', payload: 'register' });
+      return;
+    }
     if (!videoUrlInput.trim() || creatingLesson) return;
 
     dispatch({ type: 'CREATE_LESSON_START' });
@@ -506,6 +512,10 @@ export default function App() {
   };
 
   const handleSaveWordToVocabulary = async () => {
+    if (isGuest) {
+      dispatch({ type: 'OPEN_AUTH_MODAL', payload: 'register' });
+      return;
+    }
     if (!selectedWordPopup || selectedWordPopup.saving) return;
     dispatch({ type: 'SAVE_WORD_START' });
 
@@ -581,15 +591,22 @@ export default function App() {
     }
   };
 
+  const handleSelectPracticeMode = (mode) => {
+    if (isGuest && mode !== 'lesson') {
+      dispatch({ type: 'OPEN_AUTH_MODAL', payload: 'login' });
+      return;
+    }
+    dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' });
+    dispatch({ type: 'SET_PRACTICE_MODE', payload: mode });
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('sk_user');
     localStorage.removeItem('sk_token');
     dispatch({ type: 'AUTH_LOGOUT' });
   };
 
-  if (!auth.user || !auth.token) {
-    return <AuthForm />;
-  }
+  const isGuest = !auth.user || !auth.token;
 
   const displayedVocabList =
     vocabView.tab === 'saved' && allSavedVocabulary.length > 0
@@ -637,7 +654,7 @@ export default function App() {
   const progressPercent =
     sentences.length > 0 ? Math.round((completedCount / sentences.length) * 100) : 0;
 
-  const isAdmin = auth.user.role === 'admin';
+  const isAdmin = !isGuest && auth.user?.role === 'admin';
 
   return (
     <div className="min-h-screen bg-[#FAF9F6] text-slate-900 flex flex-col">
@@ -663,12 +680,20 @@ export default function App() {
 
             <button
               type="button"
-              onClick={() => dispatch({ type: 'TOGGLE_LESSONS_DRAWER' })}
+              onClick={() =>
+                isGuest
+                  ? dispatch({ type: 'OPEN_AUTH_MODAL', payload: 'login' })
+                  : dispatch({ type: 'TOGGLE_LESSONS_DRAWER' })
+              }
               className="lg:hidden inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200/70 text-slate-700 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap"
             >
               <FolderOpen className="w-3.5 h-3.5 text-[#2563EB]" />
               <span>Lessons ({lessonsList.length})</span>
-              <ChevronDown className="w-3 h-3 text-slate-400" />
+              {isGuest ? (
+                <Lock className="w-3 h-3 text-slate-400" />
+              ) : (
+                <ChevronDown className="w-3 h-3 text-slate-400" />
+              )}
             </button>
           </div>
 
@@ -682,21 +707,20 @@ export default function App() {
             ].map((navItem) => {
               const isActive =
                 activeScreen === 'workspace' && practiceMode === navItem.id;
+              const isLocked = isGuest && navItem.id !== 'lesson';
               return (
                 <button
                   key={navItem.id}
                   type="button"
-                  onClick={() => {
-                    dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' });
-                    dispatch({ type: 'SET_PRACTICE_MODE', payload: navItem.id });
-                  }}
-                  className={`relative py-4 text-[13px] transition-colors cursor-pointer whitespace-nowrap ${
+                  onClick={() => handleSelectPracticeMode(navItem.id)}
+                  className={`relative py-4 inline-flex items-center gap-1 text-[13px] transition-colors cursor-pointer whitespace-nowrap ${
                     isActive
                       ? 'font-semibold text-slate-900'
                       : 'font-medium text-slate-500 hover:text-slate-900'
                   }`}
                 >
-                  {navItem.label}
+                  <span>{navItem.label}</span>
+                  {isLocked && <Lock className="w-3 h-3 text-slate-400" />}
                   {isActive && (
                     <span className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full bg-[#2563EB]" />
                   )}
@@ -706,7 +730,11 @@ export default function App() {
 
             <button
               type="button"
-              onClick={() => dispatch({ type: 'TOGGLE_LESSONS_DRAWER' })}
+              onClick={() =>
+                isGuest
+                  ? dispatch({ type: 'OPEN_AUTH_MODAL', payload: 'login' })
+                  : dispatch({ type: 'TOGGLE_LESSONS_DRAWER' })
+              }
               className={`relative py-4 inline-flex items-center gap-1.5 text-[13px] transition-colors cursor-pointer whitespace-nowrap ${
                 isLessonsDrawerOpen
                   ? 'font-semibold text-[#2563EB]'
@@ -714,7 +742,11 @@ export default function App() {
               }`}
             >
               <span>My Lessons ({lessonsList.length})</span>
-              <ChevronDown className="w-3.5 h-3.5" />
+              {isGuest ? (
+                <Lock className="w-3 h-3 text-slate-400" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5" />
+              )}
             </button>
 
             {isAdmin && (
@@ -833,54 +865,75 @@ export default function App() {
 
           {/* Right: Clean Single-Line Account Controls (Desktop & Tablet) */}
           <div className="hidden md:flex items-center gap-2.5 shrink-0">
-            {auth.user.google_id ? (
-              <span
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50/80 border border-emerald-200/80 text-emerald-700 text-xs font-medium whitespace-nowrap"
-                title={`Verified Google Account: ${auth.user.email}`}
-              >
-                <GoogleIcon className="w-3.5 h-3.5" />
-                <span className="hidden xl:inline">Google</span>
-              </span>
+            {isGuest ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'OPEN_AUTH_MODAL', payload: 'login' })}
+                  className="px-3.5 py-1.5 rounded-full text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'OPEN_AUTH_MODAL', payload: 'register' })}
+                  className="px-4 py-1.5 rounded-full bg-[#2563EB] hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-all cursor-pointer whitespace-nowrap"
+                >
+                  Create Free Account
+                </button>
+              </>
             ) : (
-              <button
-                type="button"
-                onClick={handleConnectRealGoogle}
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 transition-colors cursor-pointer whitespace-nowrap"
-                title="Connect your Google account"
-              >
-                <GoogleIcon className="w-3.5 h-3.5" />
-                <span>Connect Google</span>
-              </button>
+              <>
+                {auth.user.google_id ? (
+                  <span
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50/80 border border-emerald-200/80 text-emerald-700 text-xs font-medium whitespace-nowrap"
+                    title={`Verified Google Account: ${auth.user.email}`}
+                  >
+                    <GoogleIcon className="w-3.5 h-3.5" />
+                    <span className="hidden xl:inline">Google</span>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleConnectRealGoogle}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 transition-colors cursor-pointer whitespace-nowrap"
+                    title="Connect your Google account"
+                  >
+                    <GoogleIcon className="w-3.5 h-3.5" />
+                    <span>Connect Google</span>
+                  </button>
+                )}
+
+                <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-slate-100/90 border border-slate-200/70 text-xs font-medium text-slate-700 whitespace-nowrap">
+                  {auth.user.avatar_url ? (
+                    <img
+                      src={auth.user.avatar_url}
+                      alt={auth.user.username}
+                      className="w-4 h-4 rounded-full object-cover"
+                    />
+                  ) : (
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                  )}
+                  <span className="max-w-[110px] truncate">{auth.user.username}</span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                      isAdmin ? 'bg-[#2563EB] text-white' : 'bg-purple-100 text-purple-700'
+                    }`}
+                  >
+                    {isAdmin ? 'Admin' : 'Student'}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="p-1.5 rounded-full text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
+                  title="Logout"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </>
             )}
-
-            <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-slate-100/90 border border-slate-200/70 text-xs font-medium text-slate-700 whitespace-nowrap">
-              {auth.user.avatar_url ? (
-                <img
-                  src={auth.user.avatar_url}
-                  alt={auth.user.username}
-                  className="w-4 h-4 rounded-full object-cover"
-                />
-              ) : (
-                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-              )}
-              <span className="max-w-[110px] truncate">{auth.user.username}</span>
-              <span
-                className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                  isAdmin ? 'bg-[#2563EB] text-white' : 'bg-purple-100 text-purple-700'
-                }`}
-              >
-                {isAdmin ? 'Admin' : 'Student'}
-              </span>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="p-1.5 rounded-full text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
-              title="Logout"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
           </div>
 
           {/* Mobile Hamburger Menu Button (< md) */}
@@ -918,60 +971,87 @@ export default function App() {
         {/* Mobile Dropdown Drawer (< md) */}
         {isMobileMenuOpen && (
           <div className="md:hidden border-t border-slate-100 bg-white px-4 py-4 space-y-3 shadow-lg">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                {auth.user.avatar_url ? (
-                  <img
-                    src={auth.user.avatar_url}
-                    alt={auth.user.username}
-                    className="w-8 h-8 rounded-full object-cover border border-slate-200"
-                  />
-                ) : (
-                  <div className="w-8 h-8 rounded-full bg-blue-100 text-[#2563EB] font-bold text-xs flex items-center justify-center">
-                    {auth.user.username?.slice(0, 2).toUpperCase()}
-                  </div>
-                )}
-                <div>
-                  <div className="text-sm font-bold text-slate-900">{auth.user.username}</div>
-                  <div className="text-xs text-slate-500">{auth.user.email}</div>
-                </div>
-              </div>
-
-              <span
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold uppercase ${
-                  isAdmin ? 'bg-[#2563EB] text-white' : 'bg-purple-100 text-purple-700'
-                }`}
-              >
-                {isAdmin ? 'Admin' : 'Student'}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 pt-2">
-              {auth.user.google_id ? (
-                <div className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
-                  <GoogleIcon className="w-3.5 h-3.5" />
-                  <span>Google Verified</span>
-                </div>
-              ) : (
+            {isGuest ? (
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={handleConnectRealGoogle}
-                  className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700"
+                  onClick={() => {
+                    dispatch({ type: 'TOGGLE_MOBILE_MENU', payload: false });
+                    dispatch({ type: 'OPEN_AUTH_MODAL', payload: 'login' });
+                  }}
+                  className="py-2.5 px-3 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700"
                 >
-                  <GoogleIcon className="w-3.5 h-3.5" />
-                  <span>Connect Google</span>
+                  Sign In
                 </button>
-              )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    dispatch({ type: 'TOGGLE_MOBILE_MENU', payload: false });
+                    dispatch({ type: 'OPEN_AUTH_MODAL', payload: 'register' });
+                  }}
+                  className="py-2.5 px-3 rounded-xl bg-[#2563EB] text-white text-xs font-semibold"
+                >
+                  Create Account
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    {auth.user.avatar_url ? (
+                      <img
+                        src={auth.user.avatar_url}
+                        alt={auth.user.username}
+                        className="w-8 h-8 rounded-full object-cover border border-slate-200"
+                      />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-blue-100 text-[#2563EB] font-bold text-xs flex items-center justify-center">
+                        {auth.user.username?.slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                    <div>
+                      <div className="text-sm font-bold text-slate-900">{auth.user.username}</div>
+                      <div className="text-xs text-slate-500">{auth.user.email}</div>
+                    </div>
+                  </div>
 
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-xs font-semibold"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>Logout</span>
-              </button>
-            </div>
+                  <span
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold uppercase ${
+                      isAdmin ? 'bg-[#2563EB] text-white' : 'bg-purple-100 text-purple-700'
+                    }`}
+                  >
+                    {isAdmin ? 'Admin' : 'Student'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-2">
+                  {auth.user.google_id ? (
+                    <div className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
+                      <GoogleIcon className="w-3.5 h-3.5" />
+                      <span>Google Verified</span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleConnectRealGoogle}
+                      className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700"
+                    >
+                      <GoogleIcon className="w-3.5 h-3.5" />
+                      <span>Connect Google</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-xs font-semibold"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Logout</span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
       </header>
@@ -1005,13 +1085,18 @@ export default function App() {
                 </div>
                 <button
                   type="submit"
-                  disabled={creatingLesson || !videoUrlInput.trim()}
+                  disabled={!isGuest && (creatingLesson || !videoUrlInput.trim())}
                   className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-70 text-white text-xs sm:text-sm font-semibold shadow-sm transition-all cursor-pointer shrink-0"
                 >
                   {creatingLesson ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
                       <span>Processing {createProgress}%</span>
+                    </>
+                  ) : isGuest ? (
+                    <>
+                      <Lock className="w-4 h-4" />
+                      <span>Sign in to Create</span>
                     </>
                   ) : (
                     <>
@@ -1264,7 +1349,7 @@ export default function App() {
                 <div className="grid grid-cols-4 gap-1.5 p-1.5 bg-white rounded-2xl border border-slate-200 shadow-sm sm:hidden">
                   <button
                     type="button"
-                    onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'lesson' })}
+                    onClick={() => handleSelectPracticeMode('lesson')}
                     className={`py-2 px-1 rounded-xl text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
                       practiceMode === 'lesson'
                         ? 'bg-[#2563EB] text-white shadow-sm'
@@ -1277,39 +1362,42 @@ export default function App() {
 
                   <button
                     type="button"
-                    onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'dictation' })}
-                    className={`py-2 px-1 rounded-xl text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
+                    onClick={() => handleSelectPracticeMode('dictation')}
+                    className={`relative py-2 px-1 rounded-xl text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
                       practiceMode === 'dictation'
                         ? 'bg-amber-500 text-white shadow-sm'
                         : 'text-slate-600'
                     }`}
                   >
+                    {isGuest && <Lock className="w-2.5 h-2.5 absolute top-1.5 right-1.5 text-slate-400" />}
                     <Keyboard className="w-4 h-4" />
                     <span>Dictation</span>
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'vocabulary' })}
-                    className={`py-2 px-1 rounded-xl text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
+                    onClick={() => handleSelectPracticeMode('vocabulary')}
+                    className={`relative py-2 px-1 rounded-xl text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
                       practiceMode === 'vocabulary'
                         ? 'bg-purple-600 text-white shadow-sm'
                         : 'text-slate-600'
                     }`}
                   >
+                    {isGuest && <Lock className="w-2.5 h-2.5 absolute top-1.5 right-1.5 text-slate-400" />}
                     <BookOpen className="w-4 h-4" />
                     <span>Vocab</span>
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'grammar' })}
-                    className={`py-2 px-1 rounded-xl text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
+                    onClick={() => handleSelectPracticeMode('grammar')}
+                    className={`relative py-2 px-1 rounded-xl text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
                       practiceMode === 'grammar'
                         ? 'bg-rose-600 text-white shadow-sm'
                         : 'text-slate-600'
                     }`}
                   >
+                    {isGuest && <Lock className="w-2.5 h-2.5 absolute top-1.5 right-1.5 text-slate-400" />}
                     <GraduationCap className="w-4 h-4" />
                     <span>Grammar</span>
                   </button>
@@ -1322,12 +1410,13 @@ export default function App() {
                       <h2 className="text-base sm:text-lg font-extrabold text-slate-900 flex items-center gap-2">
                         <span>Choose a practice mode</span>
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-[#2563EB] border border-blue-100">
-                          4 Modes
+                          {isGuest ? 'Preview Mode' : '4 Modes'}
                         </span>
                       </h2>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        Switch between Shadowing, Dictation Quiz, Vocabulary Flashcards, and
-                        Grammar.
+                        {isGuest
+                          ? 'Previewing Shadowing mode. Sign in free to unlock Dictation, Vocabulary & Grammar.'
+                          : 'Switch between Shadowing, Dictation Quiz, Vocabulary Flashcards, and Grammar.'}
                       </p>
                     </div>
                   </div>
@@ -1336,7 +1425,7 @@ export default function App() {
                     {/* Mode 1: Lesson (Shadowing) */}
                     <button
                       type="button"
-                      onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'lesson' })}
+                      onClick={() => handleSelectPracticeMode('lesson')}
                       className={`group relative overflow-hidden text-center p-4 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col items-center justify-between hover:-translate-y-1 hover:shadow-md ${
                         practiceMode === 'lesson'
                           ? 'border-[#2563EB] bg-gradient-to-b from-blue-50/80 to-white ring-2 ring-blue-600/20 shadow-md -translate-y-0.5'
@@ -1368,14 +1457,18 @@ export default function App() {
                     {/* Mode 2: Dictation (Listen & Type) */}
                     <button
                       type="button"
-                      onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'dictation' })}
+                      onClick={() => handleSelectPracticeMode('dictation')}
                       className={`group relative overflow-hidden text-center p-4 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col items-center justify-between hover:-translate-y-1 hover:shadow-md ${
                         practiceMode === 'dictation'
                           ? 'border-amber-500 bg-gradient-to-b from-amber-50/80 to-white ring-2 ring-amber-500/20 shadow-md -translate-y-0.5'
                           : 'border-slate-200 bg-white hover:border-amber-300'
                       }`}
                     >
-                      {practiceMode === 'dictation' ? (
+                      {isGuest ? (
+                        <span className="absolute top-2 right-2 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-500">
+                          <Lock className="w-2.5 h-2.5" />
+                        </span>
+                      ) : practiceMode === 'dictation' ? (
                         <span className="absolute top-2.5 right-2.5 flex h-2 w-2">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-75"></span>
                           <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
@@ -1397,28 +1490,30 @@ export default function App() {
                         </p>
                       </div>
                       <span className="mt-3 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700">
-                        #{activeSentenceIndex} active
+                        {isGuest ? 'Sign in' : `#${activeSentenceIndex} active`}
                       </span>
                     </button>
 
                     {/* Mode 3: Vocabulary */}
                     <button
                       type="button"
-                      onClick={() =>
-                        dispatch({ type: 'SET_PRACTICE_MODE', payload: 'vocabulary' })
-                      }
+                      onClick={() => handleSelectPracticeMode('vocabulary')}
                       className={`group relative overflow-hidden text-center p-4 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col items-center justify-between hover:-translate-y-1 hover:shadow-md ${
                         practiceMode === 'vocabulary'
                           ? 'border-purple-600 bg-gradient-to-b from-purple-50/80 to-white ring-2 ring-purple-600/20 shadow-md -translate-y-0.5'
                           : 'border-slate-200 bg-white hover:border-purple-300'
                       }`}
                     >
-                      {practiceMode === 'vocabulary' && (
+                      {isGuest ? (
+                        <span className="absolute top-2 right-2 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-500">
+                          <Lock className="w-2.5 h-2.5" />
+                        </span>
+                      ) : practiceMode === 'vocabulary' ? (
                         <span className="absolute top-2.5 right-2.5 flex h-2 w-2">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-500 opacity-75"></span>
                           <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-600"></span>
                         </span>
-                      )}
+                      ) : null}
                       <div className="w-11 h-11 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center mb-2.5 group-hover:scale-110 group-hover:-rotate-6 transition-all duration-300 shadow-sm">
                         <BookOpen className="w-5 h-5" />
                       </div>
@@ -1431,26 +1526,30 @@ export default function App() {
                         </p>
                       </div>
                       <span className="mt-3 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-purple-50 text-purple-700">
-                        {vocabulary.length} words
+                        {isGuest ? 'Sign in' : `${vocabulary.length} words`}
                       </span>
                     </button>
 
                     {/* Mode 4: Grammar */}
                     <button
                       type="button"
-                      onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'grammar' })}
+                      onClick={() => handleSelectPracticeMode('grammar')}
                       className={`group relative overflow-hidden text-center p-4 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col items-center justify-between hover:-translate-y-1 hover:shadow-md ${
                         practiceMode === 'grammar'
                           ? 'border-rose-600 bg-gradient-to-b from-rose-50/80 to-white ring-2 ring-rose-600/20 shadow-md -translate-y-0.5'
                           : 'border-slate-200 bg-white hover:border-rose-300'
                       }`}
                     >
-                      {practiceMode === 'grammar' && (
+                      {isGuest ? (
+                        <span className="absolute top-2 right-2 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-500">
+                          <Lock className="w-2.5 h-2.5" />
+                        </span>
+                      ) : practiceMode === 'grammar' ? (
                         <span className="absolute top-2.5 right-2.5 flex h-2 w-2">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-75"></span>
                           <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-600"></span>
                         </span>
-                      )}
+                      ) : null}
                       <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mb-2.5 group-hover:scale-110 group-hover:rotate-6 transition-all duration-300 shadow-sm">
                         <GraduationCap className="w-5 h-5" />
                       </div>
@@ -1463,7 +1562,7 @@ export default function App() {
                         </p>
                       </div>
                       <span className="mt-3 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700">
-                        {grammarPoints.length} rules
+                        {isGuest ? 'Sign in' : `${grammarPoints.length} rules`}
                       </span>
                     </button>
                   </div>
@@ -2222,6 +2321,18 @@ export default function App() {
           AUTHOR & CONTACT INFORMATION FOOTER
       ========================================================= */}
       <Footer />
+
+      {/* =========================================================
+          AUTH MODAL FOR GUEST PREVIEW MODE
+      ========================================================= */}
+      {isAuthModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <AuthForm
+            isModal
+            onClose={() => dispatch({ type: 'CLOSE_AUTH_MODAL' })}
+          />
+        </div>
+      )}
     </div>
   );
 }

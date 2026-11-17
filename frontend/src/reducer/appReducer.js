@@ -156,6 +156,7 @@ export const initialState = {
     error: null,
   },
   googleClientId: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
+  isAuthModalOpen: false,
   activeScreen: 'workspace', // 'workspace' | 'admin'
   isMobileMenuOpen: false,
   adminDashboard: {
@@ -266,6 +267,7 @@ export function appReducer(state, action) {
     case 'AUTH_SUCCESS':
       return {
         ...state,
+        isAuthModalOpen: false,
         auth: {
           ...state.auth,
           user: action.payload.user,
@@ -273,6 +275,27 @@ export function appReducer(state, action) {
           loading: false,
           error: null,
           form: { username: '', email: '', password: '', role: 'student' },
+        },
+      };
+
+    case 'OPEN_AUTH_MODAL':
+      return {
+        ...state,
+        isAuthModalOpen: true,
+        auth: {
+          ...state.auth,
+          isLoginMode: action.payload === 'register' ? false : true,
+          error: null,
+        },
+      };
+
+    case 'CLOSE_AUTH_MODAL':
+      return {
+        ...state,
+        isAuthModalOpen: false,
+        auth: {
+          ...state.auth,
+          error: null,
         },
       };
 

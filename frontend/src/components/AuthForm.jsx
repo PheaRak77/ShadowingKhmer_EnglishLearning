@@ -9,6 +9,7 @@ import {
   Sparkles,
   Languages,
   BookOpen,
+  X,
 } from 'lucide-react';
 import { useAppContext } from '../reducer/appReducer.js';
 import Footer from './Footer.jsx';
@@ -39,7 +40,7 @@ export function GoogleIcon({ className = 'w-4 h-4' }) {
   );
 }
 
-export default function AuthForm() {
+export default function AuthForm({ isModal = false, onClose }) {
   const { state, dispatch } = useAppContext();
   const { isLoginMode, form, loading, error } = state.auth;
   const { googleClientId } = state;
@@ -180,11 +181,34 @@ export default function AuthForm() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FAF9F6] flex flex-col justify-between">
-      <div className="flex-1 flex flex-col justify-center items-center px-4 py-10 sm:py-14">
-        <div className="w-full max-w-md">
-        {/* Brand Header */}
-        <div className="text-center mb-8">
+    <div
+      className={
+        isModal
+          ? 'w-full max-w-md mx-auto relative'
+          : 'min-h-screen bg-[#FAF9F6] flex flex-col justify-between'
+      }
+    >
+      <div
+        className={
+          isModal
+            ? 'w-full'
+            : 'flex-1 flex flex-col justify-center items-center px-4 py-10 sm:py-14'
+        }
+      >
+        <div className="w-full max-w-md relative">
+          {isModal && onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="absolute right-4 top-4 z-10 p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+              title="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+          {/* Brand Header */}
+          {!isModal && (
+            <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600 text-white shadow-md shadow-blue-600/20 mb-4">
             <Headphones className="w-7 h-7" />
           </div>
@@ -208,9 +232,20 @@ export default function AuthForm() {
             </span>
           </div>
         </div>
+          )}
 
         {/* Auth Card */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-6 sm:p-8">
+          {isModal && (
+            <div className="text-center mb-5 pr-4">
+              <h2 className="text-lg font-extrabold text-slate-900">
+                Sign in to unlock all features
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5 khmer-text">
+                បង្កើតគណនីឥតគិតថ្លៃ ដើម្បីបង្កើតមេរៀន YouTube, Dictation, Flashcards & Grammar
+              </p>
+            </div>
+          )}
           {/* Mode Switch Tabs */}
           <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl mb-6">
             <button
@@ -351,7 +386,7 @@ export default function AuthForm() {
         </div>
       </div>
       </div>
-      <Footer />
+      {!isModal && <Footer />}
     </div>
   );
 }
