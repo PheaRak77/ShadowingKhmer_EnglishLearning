@@ -336,12 +336,10 @@ export default function AuthForm({ isModal = false, onClose }) {
                 </div>
               )}
 
-              {forgotPassword.issuedCode && forgotPassword.step === 'reset' && (
-                <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-xs space-y-1">
-                  <div className="font-bold">Your 6-Digit Reset Code:</div>
-                  <div className="text-lg font-extrabold tracking-widest text-[#2563EB]">
-                    {forgotPassword.issuedCode}
-                  </div>
+              {forgotPassword.successMessage && forgotPassword.step === 'reset' && (
+                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs sm:text-sm font-medium flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" />
+                  <span>{forgotPassword.successMessage}</span>
                 </div>
               )}
 

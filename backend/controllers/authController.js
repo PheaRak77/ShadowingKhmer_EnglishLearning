@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { UserModel } from '../models/userModel.js';
 import { signUserToken } from '../middleware/auth.js';
 import { seedStarterLessonIfEmpty } from '../config/db.js';
+import { sendResetOtpEmail } from '../services/emailService.js';
 
 dotenv.config();
 
@@ -219,7 +220,7 @@ export const AuthController = {
     }
   },
 
-  // POST /api/auth/forgot-password - Generate 6-digit reset code valid for 15 minutes
+  // POST /api/auth/forgot-password - Generate 6-digit OTP & send to user's real email
   async forgotPassword(req, res) {
     try {
       const { email } = req.body;
@@ -236,13 +237,24 @@ export const AuthController = {
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       await UserModel.saveResetCode(email, resetCode, expiresAt);
 
+      const emailResult = await sendResetOtpEmail(existing.email, existing.username, resetCode);
+
+      if (!emailResult.sent) {
+        return res.status(503).json({
+          error:
+            'Real email OTP sender is not configured yet. Please add SMTP_EMAIL & SMTP_APP_PASSWORD (Gmail App Password) in Render Environment Variables.',
+        });
+      }
+
       return res.json({
-        message: '6-digit password reset code generated (valid for 15 minutes).',
-        resetCode,
+        message: `6-digit OTP sent to ${existing.email}. Please check your Inbox or Spam folder.`,
+        emailSent: true,
       });
     } catch (err) {
       console.error('Forgot password error:', err);
-      return res.status(500).json({ error: 'Failed to generate password reset code.' });
+      return res.status(500).json({
+        error: `Failed to send OTP email: ${err.message}`,
+      });
     }
   },
 
