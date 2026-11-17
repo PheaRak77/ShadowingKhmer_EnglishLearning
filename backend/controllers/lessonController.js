@@ -1,9 +1,43 @@
 import { LessonModel } from '../models/lessonModel.js';
+import { pool } from '../config/db.js';
 import {
   extractYouTubeId,
   fetchYoutubeCaptionsWithYtDlp,
 } from '../services/youtubeService.js';
-import { generateLessonWithGemini } from '../services/geminiService.js';
+import {
+  generateLessonWithGemini,
+  translateTextsToKhmerFast,
+} from '../services/geminiService.js';
+
+// Self-healing helper: If an existing lesson has placeholder Khmer text ('ការបកប្រែភាសាខ្មែរ'),
+// automatically re-translate and save real Khmer into PostgreSQL.
+async function healMissingKhmerTranslations(details) {
+  if (!details || !Array.isArray(details.sentences)) return details;
+
+  const placeholderSet = new Set(['ការបកប្រែភាសាខ្មែរ', 'មិនទាន់មានការបកប្រែ', '']);
+  const toFix = details.sentences.filter(
+    (s) => !s.khmer_text || placeholderSet.has(s.khmer_text.trim())
+  );
+
+  if (toFix.length === 0) return details;
+
+  try {
+    const translated = await translateTextsToKhmerFast(toFix.map((s) => s.english_text));
+    await Promise.all(
+      toFix.map(async (s, idx) => {
+        const km = translated[idx];
+        if (km && !placeholderSet.has(km.trim())) {
+          s.khmer_text = km;
+          await pool.query('UPDATE sentences SET khmer_text = $1 WHERE id = $2', [km, s.id]);
+        }
+      })
+    );
+  } catch (err) {
+    console.warn('Self-heal Khmer translation warning:', err.message);
+  }
+
+  return details;
+}
 
 export const LessonController = {
   // GET /api/lessons
@@ -32,7 +66,8 @@ export const LessonController = {
         return res.status(404).json({ error: 'Lesson not found.' });
       }
 
-      return res.json(details);
+      const healed = await healMissingKhmerTranslations(details);
+      return res.json(healed);
     } catch (err) {
       console.error('Get single lesson error:', err);
       return res.status(500).json({ error: 'Failed to fetch lesson details.' });
@@ -54,7 +89,8 @@ export const LessonController = {
       const existing = await LessonModel.findExistingByVideoId(videoId, req.user.id);
       if (existing) {
         console.log(`⚡ Instant cache hit from PostgreSQL for video ${videoId}`);
-        return res.status(200).json(existing);
+        const healed = await healMissingKhmerTranslations(existing);
+        return res.status(200).json(healed);
       }
     } catch {}
 

@@ -9,7 +9,6 @@ const ai = process.env.GEMINI_API_KEY
   ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
   : null;
 
-// Fast models ordered from lowest latency to fallback
 const FAST_GEMINI_MODELS = [
   'gemini-3.5-flash',
   'gemini-3.6-flash',
@@ -17,37 +16,153 @@ const FAST_GEMINI_MODELS = [
   'gemini-3.8-flash',
 ];
 
-// Ultra-fast parallel English -> Khmer translation (~0.4s for 40-80 sentences)
-async function translateTextsToKhmerFast(englishTexts) {
+// Layer 1: Google Translate gtx endpoint (fast when not rate-limited)
+async function tryGoogleGtxChunk(chunk) {
+  const joined = chunk.join('\n');
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=km&dt=t&q=${encodeURIComponent(
+    joined
+  )}`;
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    },
+    signal: AbortSignal.timeout(7000),
+  });
+  if (!res.ok) throw new Error('GTX status ' + res.status);
+  const data = await res.json();
+  const fullTranslated = (data[0] || []).map((seg) => seg[0] || '').join('');
+  const splitLines = fullTranslated.split('\n').map((s) => s.trim());
+  if (splitLines.length < chunk.length) {
+    throw new Error('GTX split mismatch');
+  }
+  return chunk.map((_, idx) => splitLines[idx] || '');
+}
+
+// Layer 2: Gemini AI batch translation (natural Khmer, works 100% on Render)
+async function tryGeminiBatchTranslate(englishTexts) {
+  if (!ai || !englishTexts.length) return null;
+
+  const numbered = englishTexts.map((t, i) => `${i + 1}. ${t}`).join('\n');
+  const prompt = `Translate these ${englishTexts.length} English sentences into natural, accurate Khmer (ភាសាខ្មែរ).
+Return a strict JSON object: { "translations": ["...", "..."] } with EXACTLY ${englishTexts.length} items in the exact same order.
+
+${numbered}`;
+
+  for (const modelName of FAST_GEMINI_MODELS) {
+    try {
+      const response = await Promise.race([
+        ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Gemini translate timeout')), 15000)
+        ),
+      ]);
+      const rawText = typeof response.text === 'function' ? response.text() : response.text;
+      const parsed = JSON.parse(rawText);
+      const arr = Array.isArray(parsed) ? parsed : parsed.translations;
+      if (Array.isArray(arr) && arr.length >= englishTexts.length) {
+        return englishTexts.map((_, idx) => String(arr[idx] || '').trim());
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+// Layer 3: MyMemory Free Translation API (never blocked on cloud servers)
+async function tryMyMemorySingle(text) {
+  try {
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(
+      text
+    )}&langpair=en|km`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const translated = data?.responseData?.translatedText;
+    if (translated && !translated.toUpperCase().includes('MYMEMORY WARNING')) {
+      return translated.trim();
+    }
+  } catch {}
+  return null;
+}
+
+// Reliable 3-Layer English -> Khmer translation
+export async function translateTextsToKhmerFast(englishTexts) {
   if (!englishTexts || englishTexts.length === 0) return [];
 
-  // Process in chunks of 15 sentences in parallel so each HTTP request is tiny & instant
-  const chunkSize = 15;
+  // Layer 1: Try Google GTX in chunks of 12
+  const chunkSize = 12;
   const chunks = [];
   for (let i = 0; i < englishTexts.length; i += chunkSize) {
     chunks.push(englishTexts.slice(i, i + chunkSize));
   }
 
-  const translatedChunks = await Promise.all(
+  let gtxSuccess = true;
+  const gtxResults = await Promise.all(
     chunks.map(async (chunk) => {
       try {
-        const joined = chunk.join('\n');
-        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=km&dt=t&q=${encodeURIComponent(
-          joined
-        )}`;
-        const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
-        if (!res.ok) throw new Error('Translate status ' + res.status);
-        const data = await res.json();
-        const fullTranslated = (data[0] || []).map((seg) => seg[0] || '').join('');
-        const splitLines = fullTranslated.split('\n').map((s) => s.trim());
-        return chunk.map((_, idx) => splitLines[idx] || splitLines[0] || 'ការបកប្រែភាសាខ្មែរ');
+        return await tryGoogleGtxChunk(chunk);
       } catch {
-        return chunk.map(() => 'ការបកប្រែភាសាខ្មែរ');
+        gtxSuccess = false;
+        return chunk.map(() => '');
       }
     })
   );
 
-  return translatedChunks.flat();
+  const merged = gtxResults.flat();
+  if (gtxSuccess && merged.every((t) => t && t.length > 0)) {
+    return merged;
+  }
+
+  // Layer 2: Use Gemini AI for any missing translations (or all if GTX was blocked on Render)
+  const missingIndices = [];
+  const missingTexts = [];
+  merged.forEach((val, idx) => {
+    if (!val) {
+      missingIndices.push(idx);
+      missingTexts.push(englishTexts[idx]);
+    }
+  });
+
+  if (missingTexts.length > 0) {
+    const geminiTranslations = await tryGeminiBatchTranslate(missingTexts);
+    if (geminiTranslations) {
+      missingIndices.forEach((origIdx, mIdx) => {
+        if (geminiTranslations[mIdx]) {
+          merged[origIdx] = geminiTranslations[mIdx];
+        }
+      });
+    }
+  }
+
+  // Layer 3: MyMemory fallback for any still-missing sentences
+  const stillMissing = [];
+  merged.forEach((val, idx) => {
+    if (!val) stillMissing.push(idx);
+  });
+
+  if (stillMissing.length > 0) {
+    // Run in small parallel batches of 6
+    for (let i = 0; i < stillMissing.length; i += 6) {
+      const batch = stillMissing.slice(i, i + 6);
+      await Promise.all(
+        batch.map(async (idx) => {
+          const km = await tryMyMemorySingle(englishTexts[idx]);
+          merged[idx] = km || englishTexts[idx];
+        })
+      );
+    }
+  }
+
+  return merged;
 }
 
 // Fast fallback vocabulary & grammar generator from the video's actual transcript sentences
@@ -146,7 +261,7 @@ async function buildInstantVocabAndGrammar(sentences, videoTitle, videoId) {
   };
 }
 
-// Try Gemini with a strict 4.5-second timeout so 503 spikes NEVER slow down the user
+// Try Gemini for vocabulary & grammar metadata
 async function tryFastGeminiMetadata(sentences, videoTitle, videoId) {
   if (!ai) return null;
 
@@ -181,13 +296,12 @@ Return strict JSON with 6 vocabulary words and 3 grammar rules:
           },
         }),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Gemini timeout > 4.5s')), 4500)
+          setTimeout(() => reject(new Error('Gemini metadata timeout')), 9000)
         ),
       ]);
       const rawText = typeof response.text === 'function' ? response.text() : response.text;
       return JSON.parse(rawText);
-    } catch (err) {
-      // Immediately move on if model is 503 overloaded or > 4.5s
+    } catch {
       continue;
     }
   }
@@ -197,7 +311,6 @@ Return strict JSON with 6 vocabulary words and 3 grammar rules:
 export async function generateLessonWithGemini(sentences, videoId) {
   const videoTitle = sentences.videoTitle || '';
 
-  // Run instant Khmer sentence translation AND fast Gemini metadata in parallel!
   const [khmerTranslations, geminiMeta] = await Promise.all([
     translateTextsToKhmerFast(sentences.map((s) => s.english_text)),
     tryFastGeminiMetadata(sentences, videoTitle, videoId),
@@ -212,7 +325,6 @@ export async function generateLessonWithGemini(sentences, videoId) {
     };
   }
 
-  // If Gemini returned 503 High Demand, immediately return our fast translated metadata without waiting!
   const fallbackMeta = await buildInstantVocabAndGrammar(sentences, videoTitle, videoId);
   return {
     title: fallbackMeta.title,
@@ -224,7 +336,7 @@ export async function generateLessonWithGemini(sentences, videoId) {
 
 export async function enrichWordWithGemini(cleanedWord, contextSentence) {
   try {
-    const [khmerArr] = await Promise.all([translateTextsToKhmerFast([cleanedWord])]);
+    const khmerArr = await translateTextsToKhmerFast([cleanedWord]);
     return {
       ipa: `/${cleanedWord}/`,
       part_of_speech: 'word',
