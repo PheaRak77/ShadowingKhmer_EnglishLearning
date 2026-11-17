@@ -295,6 +295,13 @@ Return a strict JSON array of objects, where each object has:
 }
 
 export async function fetchYoutubeCaptionsWithYtDlp(videoUrl, videoId) {
+  // On Render cloud servers, YouTube blocks datacenter IPs from yt-dlp ("Sign in to confirm you're not a bot").
+  // Skip waiting on yt-dlp and use Gemini native YouTube ingestion directly for fast cloud extraction.
+  if (process.env.RENDER === 'true') {
+    console.log(`☁️ Render cloud detected: using Gemini native YouTube extraction for ${videoId}...`);
+    return await extractTranscriptViaGeminiCloud(videoId);
+  }
+
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), `ytdlp-${videoId}-`));
   const outputTemplate = path.join(tempDir, '%(id)s.%(ext)s');
   const titleFile = path.join(tempDir, 'title.txt');
