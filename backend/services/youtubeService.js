@@ -288,27 +288,34 @@ Include 6 key vocabulary words and 3 grammar rules.`;
     return { parsed, normalized, modelName };
   };
 
-  // Race batch 1 (3 independent Gemini models simultaneously) — whichever responds first wins!
-  let winner;
-  try {
-    winner = await Promise.any([
-      callSingleModel('gemini-3-flash-preview'),
-      callSingleModel('gemini-3.5-flash'),
-      callSingleModel('gemini-3.7-flash'),
-    ]);
-  } catch {
+  // Try Gemini models sequentially (avoids burning 3x Free-Tier RPM quota simultaneously with Promise.any)
+  const modelsToTry = [
+    'gemini-3.5-flash',
+    'gemini-3.7-flash',
+    'gemini-3.8-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash-lite',
+  ];
+
+  let winner = null;
+  let lastErr = null;
+  for (const modelName of modelsToTry) {
     try {
-      // Batch 2 fallback across remaining Gemini models
-      winner = await Promise.any([
-        callSingleModel('gemini-flash-latest'),
-        callSingleModel('gemini-3.8-flash'),
-        callSingleModel('gemini-3.6-flash'),
-      ]);
-    } catch {
-      throw new Error(
-        'AI server is temporarily busy (high demand). Please wait 5 seconds and click Create Lesson again.'
-      );
+      winner = await callSingleModel(modelName);
+      if (winner) break;
+    } catch (err) {
+      lastErr = err;
+      console.warn(`Gemini extraction (${modelName}) warning:`, err.message?.slice(0, 140));
+      await new Promise((r) => setTimeout(r, 1200));
     }
+  }
+
+  if (!winner) {
+    throw new Error(
+      `Google Gemini is currently experiencing high demand (${
+        lastErr?.status || lastErr?.message?.slice(0, 60) || '503'
+      }). Please wait 10 seconds and click Create Lesson again.`
+    );
   }
 
   const videoTitle = await titlePromise;
