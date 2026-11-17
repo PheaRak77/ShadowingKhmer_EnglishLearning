@@ -642,47 +642,142 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#FAF9F6] text-slate-900 flex flex-col">
       {/* =========================================================
-          RESPONSIVE TOP NAVIGATION BAR (MOBILE, TABLET, DESKTOP)
+          APPLE-STYLE FROSTED GLASS NAVIGATION BAR
       ========================================================= */}
-      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200">
-        <div className="max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
-          {/* Left: App Brand & My Lessons Dropdown */}
-          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+      <header className="sticky top-0 z-30 bg-white/75 backdrop-blur-xl backdrop-saturate-150 border-b border-slate-200/70 transition-all">
+        <div className="max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4">
+          {/* Left: Minimalist Brand + Mobile My Lessons */}
+          <div className="flex items-center gap-2.5 min-w-0">
             <button
               type="button"
               onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' })}
-              className="flex items-center gap-2 sm:gap-2.5 cursor-pointer shrink-0"
+              className="flex items-center gap-2 cursor-pointer shrink-0 group"
             >
-              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#2563EB] flex items-center justify-center text-white shadow-sm">
-                <Headphones className="w-4 h-4 sm:w-5 sm:h-5" />
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#2563EB] to-indigo-600 flex items-center justify-center text-white shadow-sm group-hover:scale-105 transition-transform">
+                <Headphones className="w-4 h-4" />
               </div>
-              <div className="text-left">
-                <span className="font-extrabold text-base sm:text-lg tracking-tight text-slate-900">
-                  Shadowing<span className="text-[#2563EB]">Khmer</span>
-                </span>
-                <span className="hidden xl:inline-block ml-2 px-2 py-0.5 text-[11px] font-semibold rounded-full bg-blue-50 text-blue-700 border border-blue-100 khmer-text">
-                  អង់គ្លេស-ខ្មែរ
-                </span>
-              </div>
+              <span className="font-bold text-sm sm:text-base tracking-tight text-slate-900">
+                Shadowing<span className="text-[#2563EB]">Khmer</span>
+              </span>
             </button>
 
-            {/* My Lessons Dropdown Trigger */}
+            {/* Mobile My Lessons Trigger (< lg) */}
+            <div className="relative lg:hidden">
+              <button
+                type="button"
+                onClick={() => dispatch({ type: 'TOGGLE_LESSONS_DRAWER' })}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-slate-100/80 hover:bg-slate-200/70 text-slate-700 text-xs font-semibold transition-all cursor-pointer"
+              >
+                <FolderOpen className="w-3.5 h-3.5 text-[#2563EB]" />
+                <span>{lessonsList.length}</span>
+                <ChevronDown className="w-3 h-3 text-slate-500" />
+              </button>
+            </div>
+          </div>
+
+          {/* Center: Apple-Style Segmented Pill Navigation (>= lg) */}
+          <nav className="hidden lg:flex items-center gap-1 p-1 rounded-full bg-slate-100/90 border border-slate-200/60 shadow-inner">
+            <button
+              type="button"
+              onClick={() => {
+                dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' });
+                dispatch({ type: 'SET_PRACTICE_MODE', payload: 'lesson' });
+              }}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                activeScreen === 'workspace' && practiceMode === 'lesson'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Shadowing
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' });
+                dispatch({ type: 'SET_PRACTICE_MODE', payload: 'dictation' });
+              }}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                activeScreen === 'workspace' && practiceMode === 'dictation'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Dictation
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' });
+                dispatch({ type: 'SET_PRACTICE_MODE', payload: 'vocabulary' });
+              }}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                activeScreen === 'workspace' && practiceMode === 'vocabulary'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Vocabulary
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' });
+                dispatch({ type: 'SET_PRACTICE_MODE', payload: 'grammar' });
+              }}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                activeScreen === 'workspace' && practiceMode === 'grammar'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Grammar
+            </button>
+
             <div className="relative">
               <button
                 type="button"
                 onClick={() => dispatch({ type: 'TOGGLE_LESSONS_DRAWER' })}
-                className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-slate-100/80 hover:bg-slate-200/70 text-slate-700 text-xs sm:text-sm font-semibold transition-all cursor-pointer"
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                  isLessonsDrawerOpen
+                    ? 'bg-white text-[#2563EB] shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
               >
-                <FolderOpen className="w-4 h-4 text-[#2563EB] shrink-0" />
-                <span className="hidden xs:inline sm:inline">My Lessons</span>
-                <span className="px-1.5 py-0.5 text-[11px] rounded-full bg-white text-slate-700 border border-slate-200">
-                  {lessonsList.length}
-                </span>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                <FolderOpen className="w-3.5 h-3.5 text-[#2563EB]" />
+                <span>My Lessons ({lessonsList.length})</span>
+                <ChevronDown className="w-3 h-3" />
               </button>
+            </div>
 
-              {isLessonsDrawerOpen && (
-                <div className="fixed sm:absolute left-3 right-3 sm:left-0 sm:right-auto mt-2 sm:w-96 rounded-2xl bg-white border border-slate-200 shadow-2xl p-3.5 z-50">
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() =>
+                  dispatch({
+                    type: 'SET_ACTIVE_SCREEN',
+                    payload: activeScreen === 'admin' ? 'workspace' : 'admin',
+                  })
+                }
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                  activeScreen === 'admin'
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                <span>Admin</span>
+              </button>
+            )}
+          </nav>
+
+          {/* My Lessons Floating Glass Dropdown (Shared for Mobile & Desktop) */}
+          <div className="relative">
+            {isLessonsDrawerOpen && (
+              <div className="fixed sm:absolute left-3 right-3 sm:left-auto sm:right-0 top-16 sm:top-6 sm:w-96 rounded-2xl bg-white/95 backdrop-blur-xl border border-slate-200/90 shadow-2xl p-3.5 z-50">
                   <div className="flex items-center justify-between px-1 pb-2.5 border-b border-slate-100">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
                       My Saved Lessons ({lessonsList.length})
@@ -770,7 +865,6 @@ export default function App() {
                 </div>
               )}
             </div>
-          </div>
 
           {/* Desktop & Tablet Right Actions */}
           <div className="hidden md:flex items-center gap-2.5">
@@ -990,9 +1084,9 @@ export default function App() {
                 </button>
               </form>
 
-              {/* Animated Loading Percentage Card */}
+              {/* Animated 3-Step Loading Percentage Card */}
               {creatingLesson && (
-                <div className="mt-4 p-4 rounded-2xl border border-blue-200/80 bg-gradient-to-br from-blue-50/80 via-white to-indigo-50/70 shadow-sm space-y-3">
+                <div className="mt-4 p-4 sm:p-5 rounded-2xl border border-blue-200/80 bg-gradient-to-br from-blue-50/80 via-white to-indigo-50/70 shadow-sm space-y-3.5">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2.5">
                       <span className="relative flex h-3 w-3">
@@ -1000,13 +1094,11 @@ export default function App() {
                         <span className="relative inline-flex rounded-full h-3 w-3 bg-[#2563EB]"></span>
                       </span>
                       <span className="text-xs sm:text-sm font-bold text-slate-800">
-                        {createProgress < 30
-                          ? 'Connecting to YouTube & fetching video info...'
-                          : createProgress < 60
-                          ? 'Extracting English captions & timestamps...'
-                          : createProgress < 85
-                          ? 'Translating sentences to Khmer (ភាសាខ្មែរ)...'
-                          : 'Building vocabulary flashcards & grammar rules...'}
+                        {createProgress < 35
+                          ? 'Step 1/3: Connecting to YouTube video...'
+                          : createProgress < 75
+                          ? 'Step 2/3: Processing captions & Khmer translation...'
+                          : 'Step 3/3: Preparing your interactive lesson...'}
                       </span>
                     </div>
                     <span className="text-base sm:text-lg font-extrabold text-[#2563EB] tabular-nums">
@@ -1024,35 +1116,34 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* 4 Stage Step Pills */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-0.5">
+                  {/* 3 Clean Animated Steps: 1. Video | 2. Processing | 3. Prepare Lesson */}
+                  <div className="grid grid-cols-3 gap-2 sm:gap-3 pt-0.5">
                     {[
-                      { label: '1. Video', threshold: 10 },
-                      { label: '2. Captions', threshold: 35 },
-                      { label: '3. Khmer AI', threshold: 65 },
-                      { label: '4. Save DB', threshold: 88 },
+                      { label: '1. Video', min: 0, doneAt: 35 },
+                      { label: '2. Processing', min: 35, doneAt: 75 },
+                      { label: '3. Prepare Lesson', min: 75, doneAt: 100 },
                     ].map((step) => {
-                      const done = createProgress >= step.threshold + 20;
-                      const active = createProgress >= step.threshold && !done;
+                      const done = createProgress >= step.doneAt;
+                      const active = createProgress >= step.min && !done;
                       return (
                         <div
                           key={step.label}
-                          className={`px-2.5 py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 border transition-all ${
+                          className={`px-2.5 sm:px-3 py-2 rounded-xl text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all duration-300 ${
                             done
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm'
                               : active
-                              ? 'bg-blue-50 text-[#2563EB] border-blue-200 animate-pulse'
-                              : 'bg-white text-slate-400 border-slate-200/70'
+                              ? 'bg-blue-50 text-[#2563EB] border-blue-300 shadow-sm scale-[1.02]'
+                              : 'bg-white/80 text-slate-400 border-slate-200/70'
                           }`}
                         >
                           {done ? (
-                            <Check className="w-3 h-3 shrink-0" />
+                            <Check className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
                           ) : active ? (
-                            <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                            <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0 text-[#2563EB]" />
                           ) : (
                             <span className="w-2 h-2 rounded-full bg-slate-300 shrink-0" />
                           )}
-                          <span>{step.label}</span>
+                          <span className="truncate">{step.label}</span>
                         </div>
                       );
                     })}
