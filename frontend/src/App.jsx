@@ -642,116 +642,80 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#FAF9F6] text-slate-900 flex flex-col">
       {/* =========================================================
-          APPLE-STYLE FROSTED GLASS NAVIGATION BAR
+          APPLE-STYLE ULTRA-CLEAN NAVIGATION BAR
       ========================================================= */}
-      <header className="sticky top-0 z-30 bg-white/75 backdrop-blur-xl backdrop-saturate-150 border-b border-slate-200/70 transition-all">
-        <div className="max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4">
-          {/* Left: Minimalist Brand + Mobile My Lessons */}
-          <div className="flex items-center gap-2.5 min-w-0">
+      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl backdrop-saturate-150 border-b border-slate-200/70">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between gap-4">
+          {/* Left: Minimalist Brand + Mobile Lessons Trigger */}
+          <div className="flex items-center gap-3 shrink-0">
             <button
               type="button"
               onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' })}
-              className="flex items-center gap-2 cursor-pointer shrink-0 group"
+              className="flex items-center gap-2 cursor-pointer group whitespace-nowrap"
             >
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#2563EB] to-indigo-600 flex items-center justify-center text-white shadow-sm group-hover:scale-105 transition-transform">
+              <div className="w-7 h-7 rounded-lg bg-[#2563EB] flex items-center justify-center text-white shadow-sm group-hover:scale-105 transition-transform">
                 <Headphones className="w-4 h-4" />
               </div>
-              <span className="font-bold text-sm sm:text-base tracking-tight text-slate-900">
+              <span className="font-bold text-[15px] tracking-tight text-slate-900">
                 Shadowing<span className="text-[#2563EB]">Khmer</span>
               </span>
             </button>
 
-            {/* Mobile My Lessons Trigger (< lg) */}
-            <div className="relative lg:hidden">
-              <button
-                type="button"
-                onClick={() => dispatch({ type: 'TOGGLE_LESSONS_DRAWER' })}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-slate-100/80 hover:bg-slate-200/70 text-slate-700 text-xs font-semibold transition-all cursor-pointer"
-              >
-                <FolderOpen className="w-3.5 h-3.5 text-[#2563EB]" />
-                <span>{lessonsList.length}</span>
-                <ChevronDown className="w-3 h-3 text-slate-500" />
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => dispatch({ type: 'TOGGLE_LESSONS_DRAWER' })}
+              className="lg:hidden inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200/70 text-slate-700 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-[#2563EB]" />
+              <span>Lessons ({lessonsList.length})</span>
+              <ChevronDown className="w-3 h-3 text-slate-400" />
+            </button>
           </div>
 
-          {/* Center: Apple-Style Segmented Pill Navigation (>= lg) */}
-          <nav className="hidden lg:flex items-center gap-1 p-1 rounded-full bg-slate-100/90 border border-slate-200/60 shadow-inner">
-            <button
-              type="button"
-              onClick={() => {
-                dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' });
-                dispatch({ type: 'SET_PRACTICE_MODE', payload: 'lesson' });
-              }}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
-                activeScreen === 'workspace' && practiceMode === 'lesson'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Shadowing
-            </button>
+          {/* Center: Clean Airy Apple.com-Style Navigation Links (Desktop >= lg) */}
+          <nav className="hidden lg:flex items-center gap-6">
+            {[
+              { id: 'lesson', label: 'Shadowing' },
+              { id: 'dictation', label: 'Dictation' },
+              { id: 'vocabulary', label: 'Vocabulary' },
+              { id: 'grammar', label: 'Grammar' },
+            ].map((navItem) => {
+              const isActive =
+                activeScreen === 'workspace' && practiceMode === navItem.id;
+              return (
+                <button
+                  key={navItem.id}
+                  type="button"
+                  onClick={() => {
+                    dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' });
+                    dispatch({ type: 'SET_PRACTICE_MODE', payload: navItem.id });
+                  }}
+                  className={`relative py-4 text-[13px] transition-colors cursor-pointer whitespace-nowrap ${
+                    isActive
+                      ? 'font-semibold text-slate-900'
+                      : 'font-medium text-slate-500 hover:text-slate-900'
+                  }`}
+                >
+                  {navItem.label}
+                  {isActive && (
+                    <span className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full bg-[#2563EB]" />
+                  )}
+                </button>
+              );
+            })}
 
             <button
               type="button"
-              onClick={() => {
-                dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' });
-                dispatch({ type: 'SET_PRACTICE_MODE', payload: 'dictation' });
-              }}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
-                activeScreen === 'workspace' && practiceMode === 'dictation'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
+              onClick={() => dispatch({ type: 'TOGGLE_LESSONS_DRAWER' })}
+              className={`relative py-4 inline-flex items-center gap-1.5 text-[13px] transition-colors cursor-pointer whitespace-nowrap ${
+                isLessonsDrawerOpen
+                  ? 'font-semibold text-[#2563EB]'
+                  : 'font-medium text-slate-500 hover:text-slate-900'
               }`}
             >
-              Dictation
+              <span>My Lessons ({lessonsList.length})</span>
+              <ChevronDown className="w-3.5 h-3.5" />
             </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' });
-                dispatch({ type: 'SET_PRACTICE_MODE', payload: 'vocabulary' });
-              }}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
-                activeScreen === 'workspace' && practiceMode === 'vocabulary'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Vocabulary
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' });
-                dispatch({ type: 'SET_PRACTICE_MODE', payload: 'grammar' });
-              }}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
-                activeScreen === 'workspace' && practiceMode === 'grammar'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Grammar
-            </button>
-
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => dispatch({ type: 'TOGGLE_LESSONS_DRAWER' })}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
-                  isLessonsDrawerOpen
-                    ? 'bg-white text-[#2563EB] shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <FolderOpen className="w-3.5 h-3.5 text-[#2563EB]" />
-                <span>My Lessons ({lessonsList.length})</span>
-                <ChevronDown className="w-3 h-3" />
-              </button>
-            </div>
 
             {isAdmin && (
               <button
@@ -762,14 +726,16 @@ export default function App() {
                     payload: activeScreen === 'admin' ? 'workspace' : 'admin',
                   })
                 }
-                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                className={`relative py-4 inline-flex items-center gap-1.5 text-[13px] transition-colors cursor-pointer whitespace-nowrap ${
                   activeScreen === 'admin'
-                    ? 'bg-slate-900 text-white shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'font-semibold text-[#2563EB]'
+                    : 'font-medium text-slate-500 hover:text-slate-900'
                 }`}
               >
-                <LayoutDashboard className="w-3.5 h-3.5" />
                 <span>Admin</span>
+                {activeScreen === 'admin' && (
+                  <span className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full bg-[#2563EB]" />
+                )}
               </button>
             )}
           </nav>
@@ -777,7 +743,7 @@ export default function App() {
           {/* My Lessons Floating Glass Dropdown (Shared for Mobile & Desktop) */}
           <div className="relative">
             {isLessonsDrawerOpen && (
-              <div className="fixed sm:absolute left-3 right-3 sm:left-auto sm:right-0 top-16 sm:top-6 sm:w-96 rounded-2xl bg-white/95 backdrop-blur-xl border border-slate-200/90 shadow-2xl p-3.5 z-50">
+              <div className="fixed sm:absolute left-3 right-3 sm:left-auto sm:right-0 top-16 sm:top-7 sm:w-96 rounded-2xl bg-white/95 backdrop-blur-xl border border-slate-200/90 shadow-2xl p-3.5 z-50">
                   <div className="flex items-center justify-between px-1 pb-2.5 border-b border-slate-100">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
                       My Saved Lessons ({lessonsList.length})
@@ -841,7 +807,6 @@ export default function App() {
                             </span>
                           )}
 
-                          {/* Remove Own Lesson Button */}
                           <button
                             type="button"
                             onClick={(e) => handleDeleteOwnLesson(e, item)}
@@ -866,82 +831,55 @@ export default function App() {
               )}
             </div>
 
-          {/* Desktop & Tablet Right Actions */}
-          <div className="hidden md:flex items-center gap-2.5">
+          {/* Right: Clean Single-Line Account Controls (Desktop & Tablet) */}
+          <div className="hidden md:flex items-center gap-2.5 shrink-0">
             {auth.user.google_id ? (
               <span
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50/80 border border-emerald-200/80 text-emerald-700 text-xs font-medium whitespace-nowrap"
                 title={`Verified Google Account: ${auth.user.email}`}
               >
                 <GoogleIcon className="w-3.5 h-3.5" />
-                <span>Google Verified</span>
+                <span className="hidden xl:inline">Google</span>
               </span>
             ) : (
               <button
                 type="button"
                 onClick={handleConnectRealGoogle}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 transition-all cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 transition-colors cursor-pointer whitespace-nowrap"
+                title="Connect your Google account"
               >
                 <GoogleIcon className="w-3.5 h-3.5" />
                 <span>Connect Google</span>
               </button>
             )}
 
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() =>
-                  dispatch({
-                    type: 'SET_ACTIVE_SCREEN',
-                    payload: activeScreen === 'admin' ? 'workspace' : 'admin',
-                  })
-                }
-                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                  activeScreen === 'admin'
-                    ? 'bg-[#2563EB] text-white border-[#2563EB] shadow-sm'
-                    : 'bg-blue-50 text-[#2563EB] border-blue-200 hover:bg-blue-100'
-                }`}
-              >
-                <LayoutDashboard className="w-3.5 h-3.5" />
-                <span>{activeScreen === 'admin' ? 'Shadowing View' : 'Admin Dashboard'}</span>
-              </button>
-            )}
-
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200/80 text-xs font-semibold text-slate-700">
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-slate-100/90 border border-slate-200/70 text-xs font-medium text-slate-700 whitespace-nowrap">
               {auth.user.avatar_url ? (
                 <img
                   src={auth.user.avatar_url}
                   alt={auth.user.username}
-                  className="w-5 h-5 rounded-full object-cover"
+                  className="w-4 h-4 rounded-full object-cover"
                 />
               ) : (
                 <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
               )}
-              <span className="max-w-[120px] truncate">{auth.user.username}</span>
+              <span className="max-w-[110px] truncate">{auth.user.username}</span>
               <span
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                   isAdmin ? 'bg-[#2563EB] text-white' : 'bg-purple-100 text-purple-700'
                 }`}
               >
-                {isAdmin ? (
-                  <>
-                    <Crown className="w-2.5 h-2.5" /> Admin
-                  </>
-                ) : (
-                  <>
-                    <GraduationCap className="w-2.5 h-2.5" /> Student
-                  </>
-                )}
+                {isAdmin ? 'Admin' : 'Student'}
               </span>
             </div>
 
             <button
               type="button"
               onClick={handleLogout}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 text-xs font-semibold text-slate-600 transition-all cursor-pointer"
+              className="p-1.5 rounded-full text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
+              title="Logout"
             >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Logout</span>
+              <LogOut className="w-4 h-4" />
             </button>
           </div>
 
