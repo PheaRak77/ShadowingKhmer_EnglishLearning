@@ -41,6 +41,13 @@ export async function sendResetOtpEmail(toEmail, username, otpCode) {
   // 1. Brevo HTTP API (Works 100% on Render Free over HTTPS port 443 in < 0.5s)
   const brevoKey = (process.env.BREVO_API_KEY || '').trim();
   if (brevoKey && !brevoKey.startsWith('your_')) {
+    if (!brevoKey.startsWith('xkeysib-')) {
+      throw new Error(
+        'Invalid BREVO_API_KEY: you entered "' +
+          brevoKey +
+          '". Please generate a real API key (starts with xkeysib-...) at https://app.brevo.com/settings/keys/api'
+      );
+    }
     const senderEmail = (process.env.SMTP_EMAIL || 'yornpheareak168@gmail.com').trim();
     const res = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',

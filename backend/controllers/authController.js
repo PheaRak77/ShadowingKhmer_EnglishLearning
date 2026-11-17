@@ -257,7 +257,16 @@ export const AuthController = {
         });
       }
 
-      // Send email in background so the UI transitions immediately without waiting on SMTP handshake
+      // If an HTTPS email API (Brevo/Resend/Webhook) is configured, await it (~0.4s) so any key/sender errors are reported clearly
+      if (hasBrevo || hasResend || hasWebhook) {
+        await sendResetOtpEmail(existing.email, existing.username, resetCode);
+        return res.json({
+          message: `6-digit OTP sent to ${existing.email}. Please check your Inbox or Spam folder.`,
+          emailSent: true,
+        });
+      }
+
+      // Only SMTP (Gmail) falls back to background dispatch
       sendResetOtpEmail(existing.email, existing.username, resetCode)
         .then(() => console.log(`✅ OTP email sent to ${existing.email}`))
         .catch((mailErr) => console.error('❌ OTP email send error:', mailErr.message));
