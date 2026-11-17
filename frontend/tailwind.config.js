@@ -8,10 +8,10 @@ export default {
         primary: '#2563EB',
       },
       fontFamily: {
-        sans: ['Inter', 'Kantumruy Pro', 'Noto Sans Khmer', 'system-ui', 'sans-serif'],
+        sans: ['Poppins', 'Siemreap', 'system-ui', 'sans-serif'],
+        khmer: ['Siemreap', 'Poppins', 'sans-serif'],
       },
     },
   },
   plugins: [],
 };
-

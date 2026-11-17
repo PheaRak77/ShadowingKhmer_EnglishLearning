@@ -44,13 +44,66 @@ import Footer from './components/Footer.jsx';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-// Helper: Speak English text or word using browser Web Speech API
+// Helper: Select the most natural human-sounding English voice on the user's device
+let cachedNaturalVoice = null;
+
+function getBestHumanEnglishVoice() {
+  if (!('speechSynthesis' in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices || voices.length === 0) return null;
+
+  const preferredOrder = [
+    'Microsoft Aria Online (Natural)',
+    'Microsoft Jenny Online (Natural)',
+    'Microsoft Guy Online (Natural)',
+    'Google US English',
+    'Google UK English Female',
+    'Google UK English Male',
+    'Samantha',
+    'Ava',
+    'Allison',
+    'Daniel',
+    'Alex',
+  ];
+
+  for (const name of preferredOrder) {
+    const match = voices.find((v) => v.name.includes(name));
+    if (match) return match;
+  }
+
+  // Fallback to any Neural / Natural / Online English voice
+  const naturalVoice = voices.find(
+    (v) =>
+      v.lang.startsWith('en') &&
+      (v.name.includes('Natural') || v.name.includes('Neural') || v.name.includes('Google'))
+  );
+  if (naturalVoice) return naturalVoice;
+
+  return voices.find((v) => v.lang === 'en-US') || voices.find((v) => v.lang.startsWith('en')) || null;
+}
+
+if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+  window.speechSynthesis.onvoiceschanged = () => {
+    cachedNaturalVoice = getBestHumanEnglishVoice();
+  };
+}
+
+// Helper: Speak English text or word with natural human-like pacing & voice
 function speakEnglish(text, rate = 0.95) {
   if (!('speechSynthesis' in window) || !text) return;
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'en-US';
+  const voice = cachedNaturalVoice || getBestHumanEnglishVoice();
+  if (voice) {
+    cachedNaturalVoice = voice;
+    utterance.voice = voice;
+    utterance.lang = voice.lang;
+  } else {
+    utterance.lang = 'en-US';
+  }
   utterance.rate = rate;
+  utterance.pitch = 1.02;
+  utterance.volume = 1.0;
   window.speechSynthesis.speak(utterance);
 }
 

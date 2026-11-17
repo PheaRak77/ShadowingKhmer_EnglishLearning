@@ -235,14 +235,16 @@ async function extractTranscriptViaGeminiCloud(videoId) {
   const canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const titlePromise = fetchVideoTitleOembed(videoId);
 
-  const prompt = `Extract spoken English sentences (up to 240s) from this YouTube video and translate each into natural Khmer.
+  const prompt = `You are a native Cambodian English-Khmer teacher in Phnom Penh.
+Extract spoken English sentences (up to 240s) from this YouTube video.
+Translate and explain everything in natural, everyday Cambodian Khmer (ដូចជនជាតិខ្មែរនិយាយ និងពន្យល់គ្នាប្រចាំថ្ងៃនៅកម្ពុជា — ងាយយល់ សាមញ្ញ មិនរឹងដូចម៉ាស៊ីនបកប្រែ).
 Return strict JSON:
 {
-  "sentences": [{"start_time": 0.0, "end_time": 3.5, "english_text": "...", "khmer_text": "..."}],
-  "vocabulary": [{"word": "...", "ipa": "/.../", "pos": "noun", "khmer": "...", "example": "..."}],
-  "grammar": [{"stage": "Stage 1: The basics", "title": "...", "explanation_en": "...", "explanation_km": "...", "example_en": "...", "example_km": "..."}]
+  "sentences": [{"start_time": 0.0, "end_time": 3.5, "english_text": "...", "khmer_text": "Natural everyday Cambodian Khmer translation"}],
+  "vocabulary": [{"word": "...", "ipa": "/.../", "pos": "noun", "khmer": "Clear natural Cambodian Khmer definition (អត្ថន័យខ្មែរងាយយល់)", "example": "..."}],
+  "grammar": [{"stage": "Stage 1: The basics", "title": "...", "explanation_en": "...", "explanation_km": "Friendly, natural Cambodian Khmer explanation like a real teacher in Cambodia", "example_en": "...", "example_km": "Natural Cambodian Khmer translation"}]
 }
-Include 6 vocabulary words and 3 grammar rules.`;
+Include 6 key vocabulary words and 3 grammar rules.`;
 
   const callSingleModel = async (modelName) => {
     const res = await Promise.race([

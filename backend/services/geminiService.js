@@ -44,7 +44,8 @@ async function tryGeminiBatchTranslate(englishTexts) {
   if (!ai || !englishTexts.length) return null;
 
   const numbered = englishTexts.map((t, i) => `${i + 1}. ${t}`).join('\n');
-  const prompt = `Translate these ${englishTexts.length} English sentences into natural, accurate Khmer (ភាសាខ្មែរ).
+  const prompt = `You are a native Cambodian English-Khmer teacher in Phnom Penh.
+Translate these ${englishTexts.length} English sentences into natural, everyday spoken Cambodian Khmer (ដូចជនជាតិខ្មែរនិយាយគ្នាប្រចាំថ្ងៃនៅកម្ពុជា ងាយយល់ និងមិនរឹងដូចម៉ាស៊ីនបកប្រែ).
 Return a strict JSON object: { "translations": ["...", "..."] } with EXACTLY ${englishTexts.length} items in the exact same order.
 
 ${numbered}`;
@@ -270,17 +271,18 @@ async function tryFastGeminiMetadata(sentences, videoTitle, videoId) {
     .map((s) => s.english_text)
     .join(' ');
 
-  const prompt = `Based on this English video transcript (Title: "${
+  const prompt = `You are a native Cambodian English-Khmer teacher in Phnom Penh.
+Based on this English video transcript (Title: "${
     videoTitle || videoId
   }"): "${sampleText}"
-Return strict JSON with 6 vocabulary words and 3 grammar rules:
+Return strict JSON with 6 vocabulary words and 3 grammar rules. Use natural, everyday Cambodian Khmer (ងាយយល់ ដូចគ្រូខ្មែរពន្យល់សិស្សនៅកម្ពុជា):
 {
   "title": "${(videoTitle || '').replace(/"/g, "'") || 'English Video Lesson'}",
   "vocabulary": [
-    {"word": "word", "ipa": "/ipa/", "pos": "noun/verb", "khmer": "Khmer meaning", "example": "Example sentence"}
+    {"word": "word", "ipa": "/ipa/", "pos": "noun/verb", "khmer": "Natural everyday Cambodian Khmer definition", "example": "Example sentence"}
   ],
   "grammar": [
-    {"stage": "Stage 1: The basics", "title": "Rule title", "explanation_en": "English rule", "explanation_km": "Khmer explanation", "example_en": "English example", "example_km": "Khmer example"}
+    {"stage": "Stage 1: The basics", "title": "Rule title", "explanation_en": "English rule", "explanation_km": "Natural Cambodian Khmer explanation like a real teacher in Cambodia", "example_en": "English example", "example_km": "Natural Cambodian Khmer translation"}
   ]
 }`;
 
