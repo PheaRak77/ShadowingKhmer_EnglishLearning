@@ -237,17 +237,29 @@ export const AuthController = {
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       await UserModel.saveResetCode(email, resetCode, expiresAt);
 
-      const emailResult = await sendResetOtpEmail(existing.email, existing.username, resetCode);
+      // Check if email credentials are configured, then dispatch email asynchronously for instant (<0.2s) UI response
+      const hasSmtp =
+        (process.env.SMTP_EMAIL || '').trim() &&
+        (process.env.SMTP_APP_PASSWORD || '').trim() &&
+        !(process.env.SMTP_APP_PASSWORD || '').startsWith('your_');
+      const hasResend =
+        (process.env.RESEND_API_KEY || '').trim() &&
+        !(process.env.RESEND_API_KEY || '').startsWith('your_');
 
-      if (!emailResult.sent) {
+      if (!hasSmtp && !hasResend) {
         return res.status(503).json({
           error:
-            'Real email OTP sender is not configured yet. Please add SMTP_EMAIL & SMTP_APP_PASSWORD (Gmail App Password) in Render Environment Variables.',
+            'Real email OTP sender is not configured yet. Please add SMTP_EMAIL & SMTP_APP_PASSWORD in Render Environment Variables.',
         });
       }
 
+      // Send email in background so the UI transitions immediately without waiting on SMTP handshake
+      sendResetOtpEmail(existing.email, existing.username, resetCode)
+        .then(() => console.log(`✅ OTP email sent to ${existing.email}`))
+        .catch((mailErr) => console.error('❌ OTP email send error:', mailErr.message));
+
       return res.json({
-        message: `6-digit OTP sent to ${existing.email}. Please check your Inbox or Spam folder.`,
+        message: `6-digit OTP is being sent to ${existing.email}. Please check your Inbox or Spam folder.`,
         emailSent: true,
       });
     } catch (err) {

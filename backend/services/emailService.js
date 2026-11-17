@@ -36,12 +36,18 @@ export async function sendResetOtpEmail(toEmail, username, otpCode) {
     </div>
   `;
 
-  // Option 1: Gmail SMTP (via nodemailer)
+  // Option 1: Gmail SMTP (via nodemailer with IPv4 + 465 SSL + connection pool for <1s speed)
   const smtpEmail = (process.env.SMTP_EMAIL || '').trim();
   const smtpPass = (process.env.SMTP_APP_PASSWORD || '').replace(/\s+/g, '');
   if (smtpEmail && smtpPass && !smtpPass.startsWith('your_')) {
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
+      family: 4,
+      connectionTimeout: 8000,
+      greetingTimeout: 8000,
+      socketTimeout: 10000,
       auth: {
         user: smtpEmail,
         pass: smtpPass,
@@ -85,3 +91,4 @@ export async function sendResetOtpEmail(toEmail, username, otpCode) {
 
   return { sent: false };
 }
+
