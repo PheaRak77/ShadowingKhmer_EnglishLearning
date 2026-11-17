@@ -66,6 +66,7 @@ export default function App() {
   const { state, dispatch } = useAppContext();
   const playerRef = useRef(null);
   const syncTimerRef = useRef(null);
+  const activeSentenceRef = useRef(null);
 
   const {
     auth,
@@ -101,8 +102,9 @@ export default function App() {
     playerSize,
   } = state;
 
-  // Fetch GOOGLE_CLIENT_ID from backend/.env
+  // Pre-warm Render backend & fetch GOOGLE_CLIENT_ID on initial page load
   useEffect(() => {
+    fetch(`${API_BASE}/api/health`).catch(() => {});
     fetch(`${API_BASE}/api/auth/google-client-id`)
       .then((res) => res.json())
       .then((data) => {
@@ -172,6 +174,16 @@ export default function App() {
 
     fetchInitialData();
   }, [auth.token]);
+
+  // Smoothly auto-scroll the active sentence into view when playing or stepping
+  useEffect(() => {
+    if (practiceMode === 'lesson' && activeSentenceRef.current) {
+      activeSentenceRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+      });
+    }
+  }, [activeSentenceIndex, practiceMode]);
 
   // Animate loading percentage smoothly while extracting & translating a YouTube lesson
   useEffect(() => {
@@ -814,7 +826,7 @@ export default function App() {
                     )}
                   </div>
 
-                  <div className="max-h-72 overflow-y-auto space-y-1.5 pr-0.5">
+                  <div className="max-h-72 overflow-y-auto smooth-scroll space-y-1.5 pr-0.5">
                     {filteredMyLessons.map((item) => (
                       <div
                         key={item.id}
@@ -1871,7 +1883,7 @@ export default function App() {
                     )}
 
                     {/* Sentence Rows List */}
-                    <div className="divide-y divide-slate-100 max-h-[500px] lg:max-h-[560px] overflow-y-auto mt-2">
+                    <div className="divide-y divide-slate-100 max-h-[500px] lg:max-h-[560px] overflow-y-auto smooth-scroll mt-2">
                       {filteredSentences.map((s) => {
                         const isActive = activeSentenceIndex === s.sentence_index;
                         const isKhmerShown = !!visibleKhmerMap[s.sentence_index];
@@ -1881,10 +1893,11 @@ export default function App() {
                         return (
                           <div
                             key={s.id || s.sentence_index}
+                            ref={isActive ? activeSentenceRef : null}
                             onClick={() => handleSentenceClick(s)}
-                            className={`p-3.5 sm:px-5 transition-all cursor-pointer flex items-start gap-2.5 sm:gap-3.5 ${
+                            className={`p-3.5 sm:px-5 transition-all duration-200 cursor-pointer flex items-start gap-2.5 sm:gap-3.5 active:bg-blue-100/50 ${
                               isActive
-                                ? 'bg-blue-50/70 border-l-4 border-[#2563EB]'
+                                ? 'bg-blue-50/75 border-l-4 border-[#2563EB]'
                                 : 'hover:bg-slate-50/90'
                             }`}
                           >
@@ -2153,7 +2166,7 @@ export default function App() {
                         </div>
                       </div>
                     ) : (
-                      <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1">
+                      <div className="space-y-3 max-h-[460px] overflow-y-auto smooth-scroll pr-1">
                         {displayedVocabList.map((item, idx) => (
                           <div
                             key={item.id || idx}
@@ -2253,7 +2266,7 @@ export default function App() {
                       ))}
                     </div>
 
-                    <div className="space-y-4 max-h-[460px] overflow-y-auto pr-1">
+                    <div className="space-y-4 max-h-[460px] overflow-y-auto smooth-scroll pr-1">
                       {filteredGrammarPoints.map((g, idx) => (
                         <div
                           key={g.id || idx}

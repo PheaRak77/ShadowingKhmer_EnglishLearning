@@ -226,108 +226,96 @@ async function fetchVideoTitleOembed(videoId) {
   }
 }
 
-// Cloud Extraction + Auto-Translation in ONE SINGLE Gemini call (2x-3x faster on Render!)
+// Cloud Extraction + Auto-Translation in ONE SINGLE Gemini call using parallel race for maximum speed
 async function extractTranscriptViaGeminiCloud(videoId) {
   if (!ai) {
     throw new Error('GEMINI_API_KEY is required for cloud YouTube caption extraction.');
   }
 
   const canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`;
-  const videoTitle = await fetchVideoTitleOembed(videoId);
-  const modelsToTry = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash'];
+  const titlePromise = fetchVideoTitleOembed(videoId);
 
-  const prompt = `Analyze this YouTube video (up to 4 minutes / 240 seconds) and return a single strict JSON object:
+  const prompt = `Extract spoken English sentences (up to 240s) from this YouTube video and translate each into natural Khmer.
+Return strict JSON:
 {
-  "sentences": [
-    {
-      "start_time": 0.0,
-      "end_time": 3.5,
-      "english_text": "Complete English sentence.",
-      "khmer_text": "Natural Khmer (ខ្មែរ) translation of this sentence."
-    }
-  ],
-  "vocabulary": [
-    {
-      "word": "example",
-      "ipa": "/ɪɡˈzæmpəl/",
-      "pos": "noun",
-      "khmer": "ឧទាហរណ៍",
-      "example": "English example sentence from the video."
-    }
-  ],
-  "grammar": [
-    {
-      "stage": "Stage 1: The basics",
-      "title": "Grammar rule title",
-      "explanation_en": "Short English explanation",
-      "explanation_km": "Natural Khmer explanation (ការពន្យល់ជាភាសាខ្មែរ)",
-      "example_en": "English example",
-      "example_km": "Khmer translation"
-    }
-  ]
+  "sentences": [{"start_time": 0.0, "end_time": 3.5, "english_text": "...", "khmer_text": "..."}],
+  "vocabulary": [{"word": "...", "ipa": "/.../", "pos": "noun", "khmer": "...", "example": "..."}],
+  "grammar": [{"stage": "Stage 1: The basics", "title": "...", "explanation_en": "...", "explanation_km": "...", "example_en": "...", "example_km": "..."}]
 }
-Include 6-8 key vocabulary words and 3 grammar rules. Every sentence MUST have both english_text and natural khmer_text.`;
+Include 6 vocabulary words and 3 grammar rules.`;
 
-  let lastErr = null;
-  for (const modelName of modelsToTry) {
-    try {
-      const res = await ai.models.generateContent({
+  const callSingleModel = async (modelName) => {
+    const res = await Promise.race([
+      ai.models.generateContent({
         model: modelName,
         contents: [
-          {
-            fileData: {
-              fileUri: canonicalUrl,
-            },
-          },
-          {
-            text: prompt,
-          },
+          { fileData: { fileUri: canonicalUrl } },
+          { text: prompt },
         ],
         config: {
           responseMimeType: 'application/json',
           thinkingConfig: { thinkingBudget: 0 },
         },
-      });
+      }),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`${modelName} timeout`)), 28000)
+      ),
+    ]);
 
-      const rawText = typeof res.text === 'function' ? res.text() : res.text;
-      const parsed = JSON.parse(rawText);
-      const list = Array.isArray(parsed) ? parsed : parsed.sentences || [];
+    const rawText = typeof res.text === 'function' ? res.text() : res.text;
+    const parsed = JSON.parse(rawText);
+    const list = Array.isArray(parsed) ? parsed : parsed.sentences || [];
 
-      const normalized = list
-        .map((item, idx) => {
-          const start = parseTimestampToSeconds(item.start_time ?? idx * 4);
-          const end = Math.max(
-            start + 1.5,
-            parseTimestampToSeconds(item.end_time ?? start + 4)
-          );
-          const text = String(item.english_text || item.text || '').trim();
-          const khmer = String(item.khmer_text || '').trim();
-          return { start_time: start, end_time: end, english_text: text, khmer_text: khmer };
-        })
-        .filter((s) => s.english_text && s.start_time <= MAX_VIDEO_DURATION_SECONDS)
-        .slice(0, 100);
+    const normalized = list
+      .map((item, idx) => {
+        const start = parseTimestampToSeconds(item.start_time ?? idx * 4);
+        const end = Math.max(
+          start + 1.5,
+          parseTimestampToSeconds(item.end_time ?? start + 4)
+        );
+        const text = String(item.english_text || item.text || '').trim();
+        const khmer = String(item.khmer_text || '').trim();
+        return { start_time: start, end_time: end, english_text: text, khmer_text: khmer };
+      })
+      .filter((s) => s.english_text && s.start_time <= MAX_VIDEO_DURATION_SECONDS)
+      .slice(0, 100);
 
-      if (normalized.length > 0) {
-        normalized.videoTitle = videoTitle;
-        // Attach precomputed Khmer translations, vocab & grammar if Gemini returned them in 1 shot
-        const hasKhmer = normalized.every((s) => s.khmer_text && s.khmer_text.length > 0);
-        if (hasKhmer && !Array.isArray(parsed)) {
-          normalized.precomputedAiData = {
-            title: videoTitle || parsed.title || `English Lesson (${videoId})`,
-            translations: normalized.map((s) => s.khmer_text),
-            vocabulary: Array.isArray(parsed.vocabulary) ? parsed.vocabulary : [],
-            grammar: Array.isArray(parsed.grammar) ? parsed.grammar : [],
-          };
-        }
-        return normalized;
-      }
-    } catch (err) {
-      lastErr = err;
-      console.warn(`Gemini cloud video extraction (${modelName}) warning:`, err.message);
+    if (normalized.length === 0) {
+      throw new Error(`${modelName} returned 0 sentences`);
     }
+    return { parsed, normalized, modelName };
+  };
+
+  // Race the 2 fastest Gemini models simultaneously — whichever responds first wins!
+  let winner;
+  try {
+    winner = await Promise.any([
+      callSingleModel('gemini-3.5-flash'),
+      callSingleModel('gemini-3.6-flash'),
+    ]);
+  } catch {
+    // Fallback to 3.7 / 3.8 if both primary models failed
+    winner = await Promise.any([
+      callSingleModel('gemini-3.7-flash'),
+      callSingleModel('gemini-3.8-flash'),
+    ]);
   }
 
-  throw lastErr || new Error('Could not extract captions from YouTube video.');
+  const videoTitle = await titlePromise;
+  const { parsed, normalized, modelName } = winner;
+  console.log(`⚡ Fastest AI winner: ${modelName} (${normalized.length} sentences)`);
+
+  normalized.videoTitle = videoTitle;
+  const hasKhmer = normalized.every((s) => s.khmer_text && s.khmer_text.length > 0);
+  if (hasKhmer && !Array.isArray(parsed)) {
+    normalized.precomputedAiData = {
+      title: videoTitle || parsed.title || `English Lesson (${videoId})`,
+      translations: normalized.map((s) => s.khmer_text),
+      vocabulary: Array.isArray(parsed.vocabulary) ? parsed.vocabulary : [],
+      grammar: Array.isArray(parsed.grammar) ? parsed.grammar : [],
+    };
+  }
+  return normalized;
 }
 
 export async function fetchYoutubeCaptionsWithYtDlp(videoUrl, videoId) {
