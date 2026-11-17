@@ -19,6 +19,19 @@ import { GoogleIcon } from './AuthForm.jsx';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
+async function parseJsonSafe(response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {
+      error: response.ok
+        ? 'Unexpected response from server.'
+        : 'Server is waking up or restarting. Please try again in a few seconds.',
+    };
+  }
+}
+
 export default function AdminDashboard({ onOpenLesson }) {
   const { state, dispatch } = useAppContext();
   const { auth, adminDashboard } = state;
@@ -32,25 +45,19 @@ export default function AdminDashboard({ onOpenLesson }) {
           Authorization: `Bearer ${auth.token}`,
         },
       });
-      const data = await res.json();
+      const data = await parseJsonSafe(res);
       if (res.ok) {
         dispatch({ type: 'ADMIN_LOAD_SUCCESS', payload: data });
       } else {
         dispatch({
-          type: 'SET_NOTIFICATION',
-          payload: {
-            type: 'error',
-            message: data.error || 'Failed to load admin overview.',
-          },
+          type: 'ADMIN_LOAD_FAILURE',
+          payload: data.error || 'Failed to load admin overview.',
         });
       }
     } catch (err) {
       dispatch({
-        type: 'SET_NOTIFICATION',
-        payload: {
-          type: 'error',
-          message: 'Network error while fetching Admin Dashboard.',
-        },
+        type: 'ADMIN_LOAD_FAILURE',
+        payload: 'Network error while fetching Admin Dashboard.',
       });
     }
   };
@@ -70,12 +77,20 @@ export default function AdminDashboard({ onOpenLesson }) {
         },
         body: JSON.stringify({ role: newRole }),
       });
-      const data = await res.json();
+      const data = await parseJsonSafe(res);
       if (res.ok && data.user) {
         dispatch({ type: 'ADMIN_USER_ROLE_UPDATED', payload: data.user });
+      } else {
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: { type: 'error', message: data.error || 'Failed to update user role.' },
+        });
       }
     } catch (err) {
-      console.error('Failed to change role:', err);
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: { type: 'error', message: 'Network error while updating user role.' },
+      });
     }
   };
 
@@ -92,9 +107,18 @@ export default function AdminDashboard({ onOpenLesson }) {
       });
       if (res.ok) {
         dispatch({ type: 'ADMIN_USER_DELETED', payload: userId });
+      } else {
+        const data = await parseJsonSafe(res);
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: { type: 'error', message: data.error || 'Failed to delete user.' },
+        });
       }
     } catch (err) {
-      console.error('Failed to delete user:', err);
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: { type: 'error', message: 'Network error while deleting user.' },
+      });
     }
   };
 
@@ -111,9 +135,18 @@ export default function AdminDashboard({ onOpenLesson }) {
       });
       if (res.ok) {
         dispatch({ type: 'ADMIN_LESSON_DELETED', payload: lessonId });
+      } else {
+        const data = await parseJsonSafe(res);
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: { type: 'error', message: data.error || 'Failed to delete lesson.' },
+        });
       }
     } catch (err) {
-      console.error('Failed to delete lesson:', err);
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: { type: 'error', message: 'Network error while deleting lesson.' },
+      });
     }
   };
 

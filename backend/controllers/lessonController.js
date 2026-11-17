@@ -3,6 +3,7 @@ import { pool } from '../config/db.js';
 import {
   extractYouTubeId,
   fetchYoutubeCaptionsWithYtDlp,
+  parseManualTranscript,
 } from '../services/youtubeService.js';
 import {
   generateLessonWithGemini,
@@ -16,7 +17,10 @@ async function healMissingKhmerTranslations(details) {
 
   const placeholderSet = new Set(['ការបកប្រែភាសាខ្មែរ', 'មិនទាន់មានការបកប្រែ', '']);
   const toFix = details.sentences.filter(
-    (s) => !s.khmer_text || placeholderSet.has(s.khmer_text.trim())
+    (s) =>
+      !s.khmer_text ||
+      placeholderSet.has(s.khmer_text.trim()) ||
+      s.khmer_text.trim().toLowerCase() === (s.english_text || '').trim().toLowerCase()
   );
 
   if (toFix.length === 0) return details;
@@ -77,29 +81,38 @@ export const LessonController = {
   // POST /api/lessons/create
   async createLesson(req, res) {
     const startTime = Date.now();
-    const { videoUrl } = req.body;
+    const { videoUrl, manualTranscript } = req.body;
     const videoId = extractYouTubeId(videoUrl);
 
     if (!videoId) {
       return res.status(400).json({ error: 'Please provide a valid YouTube video URL.' });
     }
 
-    // Instant return (0.02s) if this user already created a lesson for this YouTube video
-    try {
-      const existing = await LessonModel.findExistingByVideoId(videoId, req.user.id);
-      if (existing) {
-        console.log(`⚡ Instant cache hit from PostgreSQL for video ${videoId}`);
-        const healed = await healMissingKhmerTranslations(existing);
-        return res.status(200).json(healed);
-      }
-    } catch {}
+    // Instant return (0.02s) if this user already created a lesson for this YouTube video (unless providing manual transcript)
+    if (!manualTranscript) {
+      try {
+        const existing = await LessonModel.findExistingByVideoId(videoId, req.user.id);
+        if (existing) {
+          console.log(`⚡ Instant cache hit from PostgreSQL for video ${videoId}`);
+          const healed = await healMissingKhmerTranslations(existing);
+          return res.status(200).json(healed);
+        }
+      } catch {}
+    }
 
     let extractedSentences;
     try {
       const ytStart = Date.now();
-      extractedSentences = await fetchYoutubeCaptionsWithYtDlp(videoUrl, videoId);
+      if (manualTranscript && manualTranscript.trim()) {
+        extractedSentences = await parseManualTranscript(manualTranscript, videoId);
+        if (!extractedSentences || extractedSentences.length === 0) {
+          return res.status(400).json({ error: 'Please paste at least one valid English sentence.' });
+        }
+      } else {
+        extractedSentences = await fetchYoutubeCaptionsWithYtDlp(videoUrl, videoId);
+      }
       console.log(
-        `⚡ yt-dlp extracted ${extractedSentences.length} sentences (up to 4 min) for ${videoId} in ${(
+        `⚡ Extracted ${extractedSentences.length} sentences (up to 4 min) for ${videoId} in ${(
           (Date.now() - ytStart) /
           1000
         ).toFixed(1)}s`

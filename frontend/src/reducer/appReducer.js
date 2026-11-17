@@ -193,6 +193,8 @@ export const initialState = {
   allSavedVocabulary: [],
   grammarPoints: DEMO_LESSON_DATA.grammar_points,
   videoUrlInput: '',
+  manualTranscriptInput: '',
+  showManualTranscript: false,
   creatingLesson: false,
   createProgress: 0,
   loadingLesson: false,
@@ -461,6 +463,19 @@ export function appReducer(state, action) {
         },
       };
 
+    case 'ADMIN_LOAD_FAILURE':
+      return {
+        ...state,
+        adminDashboard: {
+          ...state.adminDashboard,
+          loading: false,
+        },
+        notification: {
+          type: 'error',
+          message: action.payload || 'Failed to load admin overview.',
+        },
+      };
+
     case 'ADMIN_SET_TAB':
       return {
         ...state,
@@ -562,6 +577,19 @@ export function appReducer(state, action) {
         videoUrlInput: action.payload,
       };
 
+    case 'SET_MANUAL_TRANSCRIPT':
+      return {
+        ...state,
+        manualTranscriptInput: action.payload,
+      };
+
+    case 'TOGGLE_MANUAL_TRANSCRIPT':
+      return {
+        ...state,
+        showManualTranscript:
+          typeof action.payload === 'boolean' ? action.payload : !state.showManualTranscript,
+      };
+
     case 'CREATE_LESSON_START':
       return {
         ...state,
@@ -591,6 +619,8 @@ export function appReducer(state, action) {
         creatingLesson: false,
         createProgress: 100,
         videoUrlInput: '',
+        manualTranscriptInput: '',
+        showManualTranscript: false,
         currentLesson: lesson,
         sentences,
         vocabulary,
@@ -607,6 +637,7 @@ export function appReducer(state, action) {
         completedSentencesMap: {},
         sentenceSearchQuery: '',
         selectedWordPopup: null,
+        vocabView: { ...state.vocabView, currentCardIndex: 0, isFlipped: false },
         dictation: { userInput: '', isChecked: false, accuracy: 0, showHint: false },
         notification: {
           type: 'success',
@@ -620,6 +651,7 @@ export function appReducer(state, action) {
         ...state,
         creatingLesson: false,
         createProgress: 0,
+        showManualTranscript: true,
         notification: {
           type: 'error',
           message: action.payload,
@@ -660,8 +692,19 @@ export function appReducer(state, action) {
         completedSentencesMap: {},
         sentenceSearchQuery: '',
         selectedWordPopup: null,
+        vocabView: { ...state.vocabView, currentCardIndex: 0, isFlipped: false },
       };
     }
+
+    case 'LOAD_LESSON_FAILURE':
+      return {
+        ...state,
+        loadingLesson: false,
+        notification: {
+          type: 'error',
+          message: action.payload || 'Could not load lesson.',
+        },
+      };
 
     case 'SET_NOTIFICATION':
       return {

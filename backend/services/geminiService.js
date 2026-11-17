@@ -10,12 +10,36 @@ const ai = process.env.GEMINI_API_KEY
   : null;
 
 const FAST_GEMINI_MODELS = [
-  'gemini-3-flash-preview',
-  'gemini-flash-latest',
   'gemini-3.5-flash',
   'gemini-3.7-flash',
   'gemini-3.8-flash',
+  'gemini-3.5-flash-lite',
 ];
+
+function safeParseJson(rawText) {
+  if (!rawText || typeof rawText !== 'string') {
+    throw new Error('Empty AI response.');
+  }
+  const cleaned = rawText
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const startObj = cleaned.indexOf('{');
+    const endObj = cleaned.lastIndexOf('}');
+    if (startObj !== -1 && endObj > startObj) {
+      return JSON.parse(cleaned.slice(startObj, endObj + 1));
+    }
+    const startArr = cleaned.indexOf('[');
+    const endArr = cleaned.lastIndexOf(']');
+    if (startArr !== -1 && endArr > startArr) {
+      return JSON.parse(cleaned.slice(startArr, endArr + 1));
+    }
+    throw new Error('AI returned malformed JSON.');
+  }
+}
 
 // Layer 1: Google Translate gtx endpoint (fast when not rate-limited)
 async function tryGoogleGtxChunk(chunk) {
@@ -67,7 +91,7 @@ ${numbered}`;
         ),
       ]);
       const rawText = typeof response.text === 'function' ? response.text() : response.text;
-      const parsed = JSON.parse(rawText);
+      const parsed = safeParseJson(rawText);
       const arr = Array.isArray(parsed) ? parsed : parsed.translations;
       if (Array.isArray(arr) && arr.length >= englishTexts.length) {
         return englishTexts.map((_, idx) => String(arr[idx] || '').trim());
@@ -303,7 +327,7 @@ Return strict JSON with 6 vocabulary words and 3 grammar rules. Use natural, eve
         ),
       ]);
       const rawText = typeof response.text === 'function' ? response.text() : response.text;
-      return JSON.parse(rawText);
+      return safeParseJson(rawText);
     } catch {
       continue;
     }

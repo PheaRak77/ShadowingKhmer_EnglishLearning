@@ -19,6 +19,67 @@ const ai = process.env.GEMINI_API_KEY
 // Maximum supported video duration: 4 minutes (240 seconds)
 export const MAX_VIDEO_DURATION_SECONDS = 240;
 
+function safeParseJson(rawText) {
+  const cleaned = String(rawText || '')
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const startObj = cleaned.indexOf('{');
+    const endObj = cleaned.lastIndexOf('}');
+    if (startObj !== -1 && endObj > startObj) {
+      return JSON.parse(cleaned.slice(startObj, endObj + 1));
+    }
+    const startArr = cleaned.indexOf('[');
+    const endArr = cleaned.lastIndexOf(']');
+    if (startArr !== -1 && endArr > startArr) {
+      return JSON.parse(cleaned.slice(startArr, endArr + 1));
+    }
+    throw new Error('AI returned malformed JSON.');
+  }
+}
+
+export async function parseManualTranscript(rawText, videoId) {
+  const trimmed = String(rawText || '').trim();
+  const videoTitle = await fetchVideoTitleOembed(videoId);
+
+  // If user pasted VTT/SRT timestamps, use our VTT parser
+  if (trimmed.includes('-->')) {
+    const parsed = parseVttAndMergeSentences(trimmed);
+    if (parsed.length > 0) {
+      parsed.videoTitle = videoTitle;
+      return parsed;
+    }
+  }
+
+  // Otherwise split plain English transcript into clean sentences with evenly paced timestamps
+  const rawSentences = trimmed
+    .replace(/\r\n/g, ' ')
+    .replace(/\n+/g, ' ')
+    .match(/[^.?!]+[.?!]+["']?|[^.?!]+$/g) || [];
+
+  const sentences = rawSentences
+    .map((s) => s.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0, 100)
+    .map((text, idx) => {
+      const start = Number((idx * 4.5).toFixed(2));
+      const end = Number(((idx + 1) * 4.5).toFixed(2));
+      const formatted = text.charAt(0).toUpperCase() + text.slice(1);
+      return {
+        start_time: start,
+        end_time: end,
+        english_text: /[.?!]["']?$/.test(formatted) ? formatted : `${formatted}.`,
+      };
+    });
+
+  sentences.videoTitle = videoTitle;
+  return sentences;
+}
+
 export function extractYouTubeId(url) {
   if (!url) return null;
   const regex =
@@ -265,7 +326,7 @@ Include 6 key vocabulary words and 3 grammar rules.`;
     ]);
 
     const rawText = typeof res.text === 'function' ? res.text() : res.text;
-    const parsed = JSON.parse(rawText);
+    const parsed = safeParseJson(rawText);
     const list = Array.isArray(parsed) ? parsed : parsed.sentences || [];
 
     const normalized = list

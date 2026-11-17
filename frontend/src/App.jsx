@@ -44,6 +44,19 @@ import Footer from './components/Footer.jsx';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
+async function parseJsonSafe(response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {
+      error: response.ok
+        ? 'Unexpected response from server.'
+        : 'Server is waking up or restarting. Please try again in a few seconds.',
+    };
+  }
+}
+
 // Helper: Select the most natural human-sounding English voice on the user's device
 let cachedNaturalVoice = null;
 
@@ -137,6 +150,8 @@ export default function App() {
     allSavedVocabulary,
     grammarPoints,
     videoUrlInput,
+    manualTranscriptInput,
+    showManualTranscript,
     creatingLesson,
     createProgress,
     loadingLesson,
@@ -160,7 +175,7 @@ export default function App() {
   useEffect(() => {
     fetch(`${API_BASE}/api/health`).catch(() => {});
     fetch(`${API_BASE}/api/auth/google-client-id`)
-      .then((res) => res.json())
+      .then((res) => parseJsonSafe(res))
       .then((data) => {
         if (data.clientId) {
           dispatch({ type: 'SET_GOOGLE_CLIENT_ID', payload: data.clientId });
@@ -194,7 +209,7 @@ export default function App() {
         }
 
         if (meRes.ok) {
-          const meData = await meRes.json();
+          const meData = await parseJsonSafe(meRes);
           if (meData.user) {
             localStorage.setItem('sk_user', JSON.stringify(meData.user));
             dispatch({
@@ -205,7 +220,7 @@ export default function App() {
         }
 
         if (lessonsRes.ok) {
-          const lessonsData = await lessonsRes.json();
+          const lessonsData = await parseJsonSafe(lessonsRes);
           const list = lessonsData.lessons || [];
           dispatch({ type: 'SET_LESSONS_LIST', payload: list });
 
@@ -215,7 +230,7 @@ export default function App() {
         }
 
         if (vocabRes.ok) {
-          const vocabData = await vocabRes.json();
+          const vocabData = await parseJsonSafe(vocabRes);
           dispatch({
             type: 'SET_ALL_SAVED_VOCABULARY',
             payload: vocabData.vocabulary || [],
@@ -334,19 +349,19 @@ export default function App() {
           Authorization: `Bearer ${tokenOverride || auth.token}`,
         },
       });
-      const data = await res.json();
+      const data = await parseJsonSafe(res);
       if (res.ok) {
         dispatch({ type: 'LOAD_LESSON_SUCCESS', payload: data });
       } else {
         dispatch({
-          type: 'SET_NOTIFICATION',
-          payload: { type: 'error', message: data.error || 'Could not load lesson.' },
+          type: 'LOAD_LESSON_FAILURE',
+          payload: data.error || 'Could not load lesson.',
         });
       }
     } catch (err) {
       dispatch({
-        type: 'SET_NOTIFICATION',
-        payload: { type: 'error', message: 'Network error while loading lesson.' },
+        type: 'LOAD_LESSON_FAILURE',
+        payload: 'Network error while loading lesson.',
       });
     }
   };
@@ -382,7 +397,7 @@ export default function App() {
           }
         }
       } else {
-        const data = await res.json().catch(() => ({}));
+        const data = await parseJsonSafe(res);
         dispatch({
           type: 'SET_NOTIFICATION',
           payload: {
@@ -445,7 +460,7 @@ export default function App() {
               accessToken: tokenResponse.access_token,
             }),
           });
-          const data = await res.json();
+          const data = await parseJsonSafe(res);
           if (res.ok && data.user) {
             localStorage.setItem('sk_user', JSON.stringify(data.user));
             if (data.token) localStorage.setItem('sk_token', data.token);
@@ -501,10 +516,13 @@ export default function App() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${auth.token}`,
         },
-        body: JSON.stringify({ videoUrl: videoUrlInput.trim() }),
+        body: JSON.stringify({
+          videoUrl: videoUrlInput.trim(),
+          manualTranscript: manualTranscriptInput.trim() || undefined,
+        }),
       });
 
-      const data = await res.json();
+      const data = await parseJsonSafe(res);
 
       if (!res.ok) {
         dispatch({
@@ -523,7 +541,7 @@ export default function App() {
         headers: { Authorization: `Bearer ${auth.token}` },
       });
       if (vocabRes.ok) {
-        const vocabData = await vocabRes.json();
+        const vocabData = await parseJsonSafe(vocabRes);
         dispatch({
           type: 'SET_ALL_SAVED_VOCABULARY',
           payload: vocabData.vocabulary || [],
@@ -615,7 +633,7 @@ export default function App() {
         }),
       });
 
-      const data = await res.json();
+      const data = await parseJsonSafe(res);
       if (res.ok && data.word) {
         dispatch({ type: 'SAVE_WORD_SUCCESS', payload: data.word });
       } else {
@@ -689,8 +707,11 @@ export default function App() {
       ? allSavedVocabulary
       : vocabulary;
 
-  const activeFlashcard =
-    displayedVocabList[vocabView.currentCardIndex] || displayedVocabList[0] || null;
+  const safeCardIndex =
+    displayedVocabList.length > 0
+      ? Math.min(Math.max(0, vocabView.currentCardIndex), displayedVocabList.length - 1)
+      : 0;
+  const activeFlashcard = displayedVocabList[safeCardIndex] || null;
 
   const grammarStages = [
     'ALL',
@@ -1182,6 +1203,42 @@ export default function App() {
                   )}
                 </button>
               </form>
+
+              {!isGuest && !creatingLesson && (
+                <div className="mt-2.5 flex items-center justify-between text-xs">
+                  <button
+                    type="button"
+                    onClick={() => dispatch({ type: 'TOGGLE_MANUAL_TRANSCRIPT' })}
+                    className="text-slate-500 hover:text-[#2563EB] font-medium transition-colors cursor-pointer"
+                  >
+                    {showManualTranscript
+                      ? '− Hide transcript box'
+                      : '+ Or paste English transcript / subtitles manually (1s instant)'}
+                  </button>
+                </div>
+              )}
+
+              {!isGuest && showManualTranscript && !creatingLesson && (
+                <div className="mt-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/80 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-xs font-bold text-slate-700">
+                      Paste English Transcript or VTT Subtitles (Optional Backup)
+                    </label>
+                    <span className="text-[11px] text-slate-400">
+                      Auto-translates to Khmer in ~1 second
+                    </span>
+                  </div>
+                  <textarea
+                    rows={3}
+                    placeholder="Paste English sentences or YouTube transcript here, then click Create Lesson..."
+                    value={manualTranscriptInput}
+                    onChange={(e) =>
+                      dispatch({ type: 'SET_MANUAL_TRANSCRIPT', payload: e.target.value })
+                    }
+                    className="w-full p-3 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#2563EB]"
+                  />
+                </div>
+              )}
 
               {/* Animated 3-Step Loading Percentage Card */}
               {creatingLesson && (
@@ -2135,7 +2192,7 @@ export default function App() {
                           className="min-h-[230px] sm:min-h-[250px] p-5 sm:p-6 rounded-2xl border-2 border-dashed border-blue-200 bg-gradient-to-br from-blue-50/50 via-white to-purple-50/40 flex flex-col items-center justify-center text-center cursor-pointer select-none transition-all hover:border-[#2563EB]"
                         >
                           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
-                            Card {vocabView.currentCardIndex + 1} of {displayedVocabList.length} •{' '}
+                            Card {safeCardIndex + 1} of {displayedVocabList.length} •{' '}
                             {vocabView.isFlipped ? 'Khmer Meaning (Back)' : 'English Word (Front)'}
                           </span>
 
@@ -2189,11 +2246,11 @@ export default function App() {
                         <div className="flex items-center justify-between gap-2">
                           <button
                             type="button"
-                            disabled={vocabView.currentCardIndex === 0}
+                            disabled={safeCardIndex === 0}
                             onClick={() =>
                               dispatch({
                                 type: 'CHANGE_FLASHCARD_INDEX',
-                                payload: Math.max(0, vocabView.currentCardIndex - 1),
+                                payload: Math.max(0, safeCardIndex - 1),
                               })
                             }
                             className="inline-flex items-center gap-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
@@ -2211,15 +2268,13 @@ export default function App() {
 
                           <button
                             type="button"
-                            disabled={
-                              vocabView.currentCardIndex >= displayedVocabList.length - 1
-                            }
+                            disabled={safeCardIndex >= displayedVocabList.length - 1}
                             onClick={() =>
                               dispatch({
                                 type: 'CHANGE_FLASHCARD_INDEX',
                                 payload: Math.min(
                                   displayedVocabList.length - 1,
-                                  vocabView.currentCardIndex + 1
+                                  safeCardIndex + 1
                                 ),
                               })
                             }

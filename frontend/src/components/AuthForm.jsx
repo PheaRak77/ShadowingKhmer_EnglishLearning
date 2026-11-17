@@ -19,6 +19,19 @@ import Footer from './Footer.jsx';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
+async function parseJsonSafe(response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {
+      error: response.ok
+        ? 'Unexpected server response.'
+        : 'Server is waking up or restarting. Please try again in 10 seconds.',
+    };
+  }
+}
+
 // Official Google "G" SVG Logo
 export function GoogleIcon({ className = 'w-4 h-4' }) {
   return (
@@ -51,7 +64,7 @@ export default function AuthForm({ isModal = false, onClose }) {
   // Fetch GOOGLE_CLIENT_ID configured in backend/.env
   useEffect(() => {
     fetch(`${API_BASE}/api/auth/google-client-id`)
-      .then((res) => res.json())
+      .then((res) => parseJsonSafe(res))
       .then((data) => {
         if (data.clientId) {
           dispatch({ type: 'SET_GOOGLE_CLIENT_ID', payload: data.clientId });
@@ -88,7 +101,7 @@ export default function AuthForm({ isModal = false, onClose }) {
         body: JSON.stringify(bodyPayload),
       });
 
-      const data = await response.json();
+      const data = await parseJsonSafe(response);
 
       if (!response.ok) {
         dispatch({
@@ -123,7 +136,7 @@ export default function AuthForm({ isModal = false, onClose }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: forgotPassword.email }),
       });
-      const data = await response.json();
+      const data = await parseJsonSafe(response);
       if (!response.ok) {
         dispatch({
           type: 'AUTH_FAILURE',
@@ -157,7 +170,7 @@ export default function AuthForm({ isModal = false, onClose }) {
           newPassword: forgotPassword.newPassword,
         }),
       });
-      const data = await response.json();
+      const data = await parseJsonSafe(response);
       if (!response.ok) {
         dispatch({
           type: 'AUTH_FAILURE',
@@ -219,7 +232,7 @@ export default function AuthForm({ isModal = false, onClose }) {
             }),
           });
 
-          const data = await response.json();
+          const data = await parseJsonSafe(response);
           if (!response.ok) {
             dispatch({
               type: 'AUTH_FAILURE',
