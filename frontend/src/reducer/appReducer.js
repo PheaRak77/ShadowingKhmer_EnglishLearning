@@ -183,9 +183,10 @@ export const initialState = {
   grammarPoints: DEMO_LESSON_DATA.grammar_points,
   videoUrlInput: '',
   creatingLesson: false,
+  createProgress: 0,
   loadingLesson: false,
   notification: null,
-  practiceMode: 'lesson',
+  practiceMode: 'lesson', // 'lesson' | 'dictation' | 'vocabulary' | 'grammar'
   activeSentenceIndex: 1,
   visibleKhmerMap: { 1: true },
   showAllKhmer: false,
@@ -194,6 +195,12 @@ export const initialState = {
   playbackRate: 1,
   isLoopingSentence: false,
   selectedWordPopup: null,
+  dictation: {
+    userInput: '',
+    isChecked: false,
+    accuracy: 0,
+    showHint: false,
+  },
   vocabView: {
     tab: 'lesson',
     isFlashcardMode: false,
@@ -438,10 +445,14 @@ export function appReducer(state, action) {
       return {
         ...state,
         creatingLesson: true,
-        notification: {
-          type: 'info',
-          message: 'Extracting English captions & translating into Khmer (3–5 seconds)...',
-        },
+        createProgress: 6,
+        notification: null,
+      };
+
+    case 'CREATE_LESSON_PROGRESS':
+      return {
+        ...state,
+        createProgress: action.payload,
       };
 
     case 'CREATE_LESSON_SUCCESS': {
@@ -453,6 +464,7 @@ export function appReducer(state, action) {
       return {
         ...state,
         creatingLesson: false,
+        createProgress: 100,
         videoUrlInput: '',
         currentLesson: lesson,
         sentences,
@@ -466,6 +478,7 @@ export function appReducer(state, action) {
         completedSentencesMap: {},
         sentenceSearchQuery: '',
         selectedWordPopup: null,
+        dictation: { userInput: '', isChecked: false, accuracy: 0, showHint: false },
         notification: {
           type: 'success',
           message: `Lesson "${lesson.title}" ready with ${sentences.length} sentences!`,
@@ -477,6 +490,7 @@ export function appReducer(state, action) {
       return {
         ...state,
         creatingLesson: false,
+        createProgress: 0,
         notification: {
           type: 'error',
           message: action.payload,
@@ -528,6 +542,52 @@ export function appReducer(state, action) {
       return {
         ...state,
         activeSentenceIndex: action.payload,
+        dictation: {
+          userInput: '',
+          isChecked: false,
+          accuracy: 0,
+          showHint: false,
+        },
+      };
+
+    case 'DICTATION_UPDATE_INPUT':
+      return {
+        ...state,
+        dictation: {
+          ...state.dictation,
+          userInput: action.payload,
+          isChecked: false,
+        },
+      };
+
+    case 'DICTATION_CHECK':
+      return {
+        ...state,
+        dictation: {
+          ...state.dictation,
+          isChecked: true,
+          accuracy: action.payload,
+        },
+      };
+
+    case 'DICTATION_TOGGLE_HINT':
+      return {
+        ...state,
+        dictation: {
+          ...state.dictation,
+          showHint: !state.dictation.showHint,
+        },
+      };
+
+    case 'DICTATION_RESET':
+      return {
+        ...state,
+        dictation: {
+          userInput: '',
+          isChecked: false,
+          accuracy: 0,
+          showHint: false,
+        },
       };
 
     case 'SET_PLAYBACK_RATE':

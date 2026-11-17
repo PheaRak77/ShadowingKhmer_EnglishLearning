@@ -31,6 +31,10 @@ import {
   SkipForward,
   Menu,
   Trash2,
+  Keyboard,
+  Eye,
+  EyeOff,
+  Award,
 } from 'lucide-react';
 import { useAppContext, DEMO_LESSON_DATA } from './reducer/appReducer.js';
 import AuthForm, { GoogleIcon } from './components/AuthForm.jsx';
@@ -77,6 +81,7 @@ export default function App() {
     grammarPoints,
     videoUrlInput,
     creatingLesson,
+    createProgress,
     loadingLesson,
     notification,
     practiceMode,
@@ -88,6 +93,7 @@ export default function App() {
     playbackRate,
     isLoopingSentence,
     selectedWordPopup,
+    dictation,
     vocabView,
     grammarFilter,
     playerSize,
@@ -164,6 +170,29 @@ export default function App() {
 
     fetchInitialData();
   }, [auth.token]);
+
+  // Animate loading percentage smoothly while extracting & translating a YouTube lesson
+  useEffect(() => {
+    if (!creatingLesson) return;
+
+    const timer = setInterval(() => {
+      const next =
+        createProgress < 35
+          ? createProgress + 7
+          : createProgress < 68
+          ? createProgress + 4
+          : createProgress < 88
+          ? createProgress + 2
+          : createProgress < 95
+          ? createProgress + 1
+          : 95;
+      if (next !== createProgress) {
+        dispatch({ type: 'CREATE_LESSON_PROGRESS', payload: next });
+      }
+    }, 550);
+
+    return () => clearInterval(timer);
+  }, [creatingLesson, createProgress, dispatch]);
 
   // Sync activeSentenceIndex with YouTube playback time & support Sentence Loop mode
   useEffect(() => {
@@ -520,6 +549,35 @@ export default function App() {
           message: 'Network error while saving vocabulary word.',
         },
       });
+    }
+  };
+
+  const handleCheckDictation = (e) => {
+    e.preventDefault();
+    const targetSentence = sentences.find((s) => s.sentence_index === activeSentenceIndex);
+    if (!targetSentence) return;
+
+    const normalize = (str) =>
+      str
+        .toLowerCase()
+        .replace(/[^a-z0-9'\s]/g, '')
+        .split(/\s+/)
+        .filter(Boolean);
+
+    const expectedWords = normalize(targetSentence.english_text);
+    const userWords = normalize(dictation.userInput);
+
+    if (expectedWords.length === 0) return;
+
+    let matches = 0;
+    expectedWords.forEach((w, idx) => {
+      if (userWords[idx] === w) matches++;
+    });
+
+    const accuracy = Math.round((matches / expectedWords.length) * 100);
+    dispatch({ type: 'DICTATION_CHECK', payload: accuracy });
+    if (accuracy >= 80) {
+      dispatch({ type: 'TOGGLE_COMPLETE_SENTENCE', payload: targetSentence.sentence_index });
     }
   };
 
@@ -916,12 +974,12 @@ export default function App() {
                 <button
                   type="submit"
                   disabled={creatingLesson || !videoUrlInput.trim()}
-                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-60 text-white text-xs sm:text-sm font-semibold shadow-sm transition-all cursor-pointer shrink-0"
+                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-70 text-white text-xs sm:text-sm font-semibold shadow-sm transition-all cursor-pointer shrink-0"
                 >
                   {creatingLesson ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Extracting (3–5s)...</span>
+                      <span>Processing {createProgress}%</span>
                     </>
                   ) : (
                     <>
@@ -931,6 +989,76 @@ export default function App() {
                   )}
                 </button>
               </form>
+
+              {/* Animated Loading Percentage Card */}
+              {creatingLesson && (
+                <div className="mt-4 p-4 rounded-2xl border border-blue-200/80 bg-gradient-to-br from-blue-50/80 via-white to-indigo-50/70 shadow-sm space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <span className="relative flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-[#2563EB]"></span>
+                      </span>
+                      <span className="text-xs sm:text-sm font-bold text-slate-800">
+                        {createProgress < 30
+                          ? 'Connecting to YouTube & fetching video info...'
+                          : createProgress < 60
+                          ? 'Extracting English captions & timestamps...'
+                          : createProgress < 85
+                          ? 'Translating sentences to Khmer (ភាសាខ្មែរ)...'
+                          : 'Building vocabulary flashcards & grammar rules...'}
+                      </span>
+                    </div>
+                    <span className="text-base sm:text-lg font-extrabold text-[#2563EB] tabular-nums">
+                      {createProgress}%
+                    </span>
+                  </div>
+
+                  {/* Animated Shimmer Progress Bar */}
+                  <div className="relative w-full h-3 bg-slate-200/70 rounded-full overflow-hidden">
+                    <div
+                      className="relative h-full bg-gradient-to-r from-[#2563EB] via-indigo-500 to-purple-500 rounded-full transition-all duration-500 ease-out overflow-hidden"
+                      style={{ width: `${createProgress}%` }}
+                    >
+                      <div className="absolute inset-0 w-1/2 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-shimmer" />
+                    </div>
+                  </div>
+
+                  {/* 4 Stage Step Pills */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-0.5">
+                    {[
+                      { label: '1. Video', threshold: 10 },
+                      { label: '2. Captions', threshold: 35 },
+                      { label: '3. Khmer AI', threshold: 65 },
+                      { label: '4. Save DB', threshold: 88 },
+                    ].map((step) => {
+                      const done = createProgress >= step.threshold + 20;
+                      const active = createProgress >= step.threshold && !done;
+                      return (
+                        <div
+                          key={step.label}
+                          className={`px-2.5 py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 border transition-all ${
+                            done
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : active
+                              ? 'bg-blue-50 text-[#2563EB] border-blue-200 animate-pulse'
+                              : 'bg-white text-slate-400 border-slate-200/70'
+                          }`}
+                        >
+                          {done ? (
+                            <Check className="w-3 h-3 shrink-0" />
+                          ) : active ? (
+                            <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                          ) : (
+                            <span className="w-2 h-2 rounded-full bg-slate-300 shrink-0" />
+                          )}
+                          <span>{step.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {notification && (
                 <div
@@ -1104,104 +1232,173 @@ export default function App() {
                 </div>
 
                 {/* Mobile Compact Mode Tabs (< sm) */}
-                <div className="grid grid-cols-3 gap-2 p-1.5 bg-white rounded-2xl border border-slate-200 shadow-sm sm:hidden">
+                <div className="grid grid-cols-4 gap-1.5 p-1.5 bg-white rounded-2xl border border-slate-200 shadow-sm sm:hidden">
                   <button
                     type="button"
                     onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'lesson' })}
-                    className={`py-2.5 px-2 rounded-xl text-xs font-bold flex flex-col items-center gap-1 transition-all ${
+                    className={`py-2 px-1 rounded-xl text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
                       practiceMode === 'lesson'
                         ? 'bg-[#2563EB] text-white shadow-sm'
                         : 'text-slate-600'
                     }`}
                   >
                     <Mic className="w-4 h-4" />
-                    <span>1. Shadowing ({sentences.length})</span>
+                    <span>Shadow</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'dictation' })}
+                    className={`py-2 px-1 rounded-xl text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
+                      practiceMode === 'dictation'
+                        ? 'bg-amber-500 text-white shadow-sm'
+                        : 'text-slate-600'
+                    }`}
+                  >
+                    <Keyboard className="w-4 h-4" />
+                    <span>Dictation</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'vocabulary' })}
-                    className={`py-2.5 px-2 rounded-xl text-xs font-bold flex flex-col items-center gap-1 transition-all ${
+                    className={`py-2 px-1 rounded-xl text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
                       practiceMode === 'vocabulary'
-                        ? 'bg-[#2563EB] text-white shadow-sm'
+                        ? 'bg-purple-600 text-white shadow-sm'
                         : 'text-slate-600'
                     }`}
                   >
                     <BookOpen className="w-4 h-4" />
-                    <span>2. Vocab ({vocabulary.length})</span>
+                    <span>Vocab</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'grammar' })}
-                    className={`py-2.5 px-2 rounded-xl text-xs font-bold flex flex-col items-center gap-1 transition-all ${
+                    className={`py-2 px-1 rounded-xl text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
                       practiceMode === 'grammar'
-                        ? 'bg-[#2563EB] text-white shadow-sm'
+                        ? 'bg-rose-600 text-white shadow-sm'
                         : 'text-slate-600'
                     }`}
                   >
                     <GraduationCap className="w-4 h-4" />
-                    <span>3. Grammar ({grammarPoints.length})</span>
+                    <span>Grammar</span>
                   </button>
                 </div>
 
-                {/* Tablet & Desktop "Choose a practice mode" Card (>= sm) */}
+                {/* Tablet & Desktop Animated "Choose a practice mode" Card (>= sm) */}
                 <div className="hidden sm:block bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm">
-                  <div className="text-center mb-4">
-                    <h2 className="text-base sm:text-lg font-extrabold text-slate-900">
-                      Choose a practice mode
-                    </h2>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Select a mode below to switch your interactive practice room.
-                    </p>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h2 className="text-base sm:text-lg font-extrabold text-slate-900 flex items-center gap-2">
+                        <span>Choose a practice mode</span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-[#2563EB] border border-blue-100">
+                          4 Modes
+                        </span>
+                      </h2>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Switch between Shadowing, Dictation Quiz, Vocabulary Flashcards, and
+                        Grammar.
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-3.5">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {/* Mode 1: Lesson (Shadowing) */}
                     <button
                       type="button"
                       onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'lesson' })}
-                      className={`group text-center p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col items-center justify-between ${
+                      className={`group relative overflow-hidden text-center p-4 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col items-center justify-between hover:-translate-y-1 hover:shadow-md ${
                         practiceMode === 'lesson'
-                          ? 'border-[#2563EB] bg-blue-50/30 ring-2 ring-blue-600/15 shadow-sm'
-                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60'
+                          ? 'border-[#2563EB] bg-gradient-to-b from-blue-50/80 to-white ring-2 ring-blue-600/20 shadow-md -translate-y-0.5'
+                          : 'border-slate-200 bg-white hover:border-blue-300'
                       }`}
                     >
-                      <div className="w-11 h-11 rounded-full bg-blue-100 text-[#2563EB] flex items-center justify-center mb-2.5 group-hover:scale-105 transition-transform">
+                      {practiceMode === 'lesson' && (
+                        <span className="absolute top-2.5 right-2.5 flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-[#2563EB]"></span>
+                        </span>
+                      )}
+                      <div className="w-11 h-11 rounded-2xl bg-blue-100 text-[#2563EB] flex items-center justify-center mb-2.5 group-hover:scale-110 group-hover:-rotate-6 transition-all duration-300 shadow-sm">
                         <Mic className="w-5 h-5" />
                       </div>
                       <div>
                         <div className="font-bold text-xs sm:text-sm text-slate-900">
-                          1. Lesson (Shadowing)
+                          1. Shadowing
                         </div>
                         <p className="text-[11px] text-slate-500 mt-1 khmer-text">
-                          Listen, repeat & translate to ខ្មែរ
+                          Repeat & ខ្មែរ
                         </p>
                       </div>
-                      <span className="mt-3 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600">
+                      <span className="mt-3 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-[#2563EB]">
                         {activeSentenceIndex}/{sentences.length}
                       </span>
                     </button>
 
+                    {/* Mode 2: Dictation (Listen & Type) */}
+                    <button
+                      type="button"
+                      onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'dictation' })}
+                      className={`group relative overflow-hidden text-center p-4 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col items-center justify-between hover:-translate-y-1 hover:shadow-md ${
+                        practiceMode === 'dictation'
+                          ? 'border-amber-500 bg-gradient-to-b from-amber-50/80 to-white ring-2 ring-amber-500/20 shadow-md -translate-y-0.5'
+                          : 'border-slate-200 bg-white hover:border-amber-300'
+                      }`}
+                    >
+                      {practiceMode === 'dictation' ? (
+                        <span className="absolute top-2.5 right-2.5 flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                        </span>
+                      ) : (
+                        <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-amber-100 text-amber-700">
+                          New
+                        </span>
+                      )}
+                      <div className="w-11 h-11 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mb-2.5 group-hover:scale-110 group-hover:rotate-6 transition-all duration-300 shadow-sm">
+                        <Keyboard className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm text-slate-900">
+                          2. Dictation
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Listen & type quiz
+                        </p>
+                      </div>
+                      <span className="mt-3 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700">
+                        #{activeSentenceIndex} active
+                      </span>
+                    </button>
+
+                    {/* Mode 3: Vocabulary */}
                     <button
                       type="button"
                       onClick={() =>
                         dispatch({ type: 'SET_PRACTICE_MODE', payload: 'vocabulary' })
                       }
-                      className={`group text-center p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col items-center justify-between ${
+                      className={`group relative overflow-hidden text-center p-4 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col items-center justify-between hover:-translate-y-1 hover:shadow-md ${
                         practiceMode === 'vocabulary'
-                          ? 'border-[#2563EB] bg-purple-50/30 ring-2 ring-blue-600/15 shadow-sm'
-                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60'
+                          ? 'border-purple-600 bg-gradient-to-b from-purple-50/80 to-white ring-2 ring-purple-600/20 shadow-md -translate-y-0.5'
+                          : 'border-slate-200 bg-white hover:border-purple-300'
                       }`}
                     >
-                      <div className="w-11 h-11 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center mb-2.5 group-hover:scale-105 transition-transform">
+                      {practiceMode === 'vocabulary' && (
+                        <span className="absolute top-2.5 right-2.5 flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-500 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-600"></span>
+                        </span>
+                      )}
+                      <div className="w-11 h-11 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center mb-2.5 group-hover:scale-110 group-hover:-rotate-6 transition-all duration-300 shadow-sm">
                         <BookOpen className="w-5 h-5" />
                       </div>
                       <div>
                         <div className="font-bold text-xs sm:text-sm text-slate-900">
-                          2. Vocabulary
+                          3. Vocabulary
                         </div>
                         <p className="text-[11px] text-slate-500 mt-1">
-                          Study key words & flashcards
+                          Words & flashcards
                         </p>
                       </div>
                       <span className="mt-3 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-purple-50 text-purple-700">
@@ -1209,24 +1406,31 @@ export default function App() {
                       </span>
                     </button>
 
+                    {/* Mode 4: Grammar */}
                     <button
                       type="button"
                       onClick={() => dispatch({ type: 'SET_PRACTICE_MODE', payload: 'grammar' })}
-                      className={`group text-center p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col items-center justify-between ${
+                      className={`group relative overflow-hidden text-center p-4 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col items-center justify-between hover:-translate-y-1 hover:shadow-md ${
                         practiceMode === 'grammar'
-                          ? 'border-[#2563EB] bg-rose-50/30 ring-2 ring-blue-600/15 shadow-sm'
-                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60'
+                          ? 'border-rose-600 bg-gradient-to-b from-rose-50/80 to-white ring-2 ring-rose-600/20 shadow-md -translate-y-0.5'
+                          : 'border-slate-200 bg-white hover:border-rose-300'
                       }`}
                     >
-                      <div className="w-11 h-11 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mb-2.5 group-hover:scale-105 transition-transform">
+                      {practiceMode === 'grammar' && (
+                        <span className="absolute top-2.5 right-2.5 flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-600"></span>
+                        </span>
+                      )}
+                      <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mb-2.5 group-hover:scale-110 group-hover:rotate-6 transition-all duration-300 shadow-sm">
                         <GraduationCap className="w-5 h-5" />
                       </div>
                       <div>
                         <div className="font-bold text-xs sm:text-sm text-slate-900">
-                          3. Grammar
+                          4. Grammar
                         </div>
                         <p className="text-[11px] text-slate-500 mt-1">
-                          Bilingual rules & examples
+                          Bilingual rules
                         </p>
                       </div>
                       <span className="mt-3 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700">
@@ -1239,6 +1443,196 @@ export default function App() {
 
               {/* RIGHT COLUMN: Dynamic Practice Workspace */}
               <div className="lg:col-span-5">
+                {practiceMode === 'dictation' && (
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-4">
+                    {(() => {
+                      const activeSentence =
+                        sentences.find((s) => s.sentence_index === activeSentenceIndex) ||
+                        sentences[0];
+                      if (!activeSentence) return null;
+
+                      const normalize = (str) =>
+                        str
+                          .toLowerCase()
+                          .replace(/[^a-z0-9'\s]/g, '')
+                          .split(/\s+/)
+                          .filter(Boolean);
+
+                      const expectedWords = activeSentence.english_text.split(/\s+/);
+                      const userWordsClean = normalize(dictation.userInput);
+
+                      return (
+                        <>
+                          <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                            <div>
+                              <h2 className="text-base sm:text-lg font-extrabold text-slate-900 flex items-center gap-2">
+                                <Keyboard className="w-5 h-5 text-amber-500" />
+                                <span>Dictation Practice</span>
+                              </h2>
+                              <p className="text-xs text-slate-500 mt-0.5">
+                                Listen to Sentence #{activeSentence.sentence_index} and type what
+                                you hear.
+                              </p>
+                            </div>
+                            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                              {activeSentence.sentence_index} / {sentences.length}
+                            </span>
+                          </div>
+
+                          {/* Audio Listen Controls */}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleSentenceClick(activeSentence)}
+                              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#2563EB] hover:bg-blue-700 text-white text-xs font-semibold shadow-sm cursor-pointer"
+                            >
+                              <Play className="w-3.5 h-3.5 fill-current" />
+                              <span>Play Video Clip</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                speakEnglish(activeSentence.english_text, playbackRate)
+                              }
+                              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold cursor-pointer"
+                            >
+                              <Volume2 className="w-3.5 h-3.5" />
+                              <span>Slow Voice ({playbackRate}x)</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => dispatch({ type: 'DICTATION_TOGGLE_HINT' })}
+                              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-600 cursor-pointer ml-auto"
+                            >
+                              {dictation.showHint ? (
+                                <>
+                                  <EyeOff className="w-3.5 h-3.5" />
+                                  <span>Hide Khmer</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span>Khmer Hint</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+
+                          {dictation.showHint && (
+                            <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/80 text-xs sm:text-sm text-slate-800 khmer-text">
+                              <span className="font-bold text-amber-800 mr-1.5">ខ្មែរ:</span>
+                              {activeSentence.khmer_text}
+                            </div>
+                          )}
+
+                          {/* Typing Form */}
+                          <form onSubmit={handleCheckDictation} className="space-y-3">
+                            <textarea
+                              rows={3}
+                              placeholder="Type the English sentence you hear..."
+                              value={dictation.userInput}
+                              onChange={(e) =>
+                                dispatch({
+                                  type: 'DICTATION_UPDATE_INPUT',
+                                  payload: e.target.value,
+                                })
+                              }
+                              className="w-full p-3.5 rounded-2xl border border-slate-200 bg-slate-50/70 text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
+                            />
+
+                            <div className="flex items-center justify-between gap-2">
+                              <button
+                                type="button"
+                                onClick={() => dispatch({ type: 'DICTATION_RESET' })}
+                                className="px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                              >
+                                Clear
+                              </button>
+
+                              <button
+                                type="submit"
+                                disabled={!dictation.userInput.trim()}
+                                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs sm:text-sm font-bold shadow-sm cursor-pointer"
+                              >
+                                <Check className="w-4 h-4" />
+                                <span>Check Answer</span>
+                              </button>
+                            </div>
+                          </form>
+
+                          {/* Instant Word-by-Word Accuracy Feedback */}
+                          {dictation.isChecked && (
+                            <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/80 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                                  <Award className="w-4 h-4 text-amber-500" />
+                                  <span>Accuracy Score:</span>
+                                </span>
+                                <span
+                                  className={`px-2.5 py-0.5 rounded-full text-xs font-extrabold ${
+                                    dictation.accuracy >= 80
+                                      ? 'bg-emerald-100 text-emerald-700'
+                                      : 'bg-amber-100 text-amber-700'
+                                  }`}
+                                >
+                                  {dictation.accuracy}%
+                                </span>
+                              </div>
+
+                              <div className="flex flex-wrap gap-1.5 text-sm leading-relaxed">
+                                {expectedWords.map((rawWord, idx) => {
+                                  const cleanExpected = rawWord
+                                    .toLowerCase()
+                                    .replace(/[^a-z0-9']/g, '');
+                                  const isCorrect = userWordsClean[idx] === cleanExpected;
+                                  return (
+                                    <span
+                                      key={idx}
+                                      className={`px-1.5 py-0.5 rounded-md font-semibold ${
+                                        isCorrect
+                                          ? 'bg-emerald-100 text-emerald-800'
+                                          : 'bg-rose-100 text-rose-700'
+                                      }`}
+                                    >
+                                      {rawWord}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+
+                              <div className="pt-2 border-t border-slate-200/70 text-xs text-slate-600 khmer-text">
+                                {activeSentence.khmer_text}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Next / Prev Sentence Navigation */}
+                          <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                            <button
+                              type="button"
+                              disabled={activeSentenceIndex <= 1}
+                              onClick={() => handleJumpRelativeSentence(-1)}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
+                            >
+                              <ChevronLeft className="w-4 h-4" /> Prev Sentence
+                            </button>
+                            <button
+                              type="button"
+                              disabled={activeSentenceIndex >= sentences.length}
+                              onClick={() => handleJumpRelativeSentence(1)}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#2563EB] text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-40 cursor-pointer"
+                            >
+                              Next Sentence <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+
                 {practiceMode === 'lesson' && (
                   <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                     {/* Top Header */}

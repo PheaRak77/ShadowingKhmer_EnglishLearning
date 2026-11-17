@@ -12,3 +12,15 @@ body {
   line-height: 1.75;
 }
 
+@keyframes shimmerSlide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmerSlide 1.6s infinite linear;
+}
