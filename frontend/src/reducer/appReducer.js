@@ -154,6 +154,15 @@ export const initialState = {
     },
     loading: false,
     error: null,
+    forgotPassword: {
+      isForgotMode: false,
+      step: 'request', // 'request' | 'reset'
+      email: '',
+      code: '',
+      newPassword: '',
+      issuedCode: '',
+      successMessage: null,
+    },
   },
   googleClientId: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
   isAuthModalOpen: false,
@@ -316,6 +325,94 @@ export function appReducer(state, action) {
           ...state.auth,
           loading: false,
           error: action.payload,
+        },
+      };
+
+    case 'FORGOT_OPEN':
+      return {
+        ...state,
+        auth: {
+          ...state.auth,
+          error: null,
+          forgotPassword: {
+            isForgotMode: true,
+            step: 'request',
+            email: state.auth.form.email || '',
+            code: '',
+            newPassword: '',
+            issuedCode: '',
+            successMessage: null,
+          },
+        },
+      };
+
+    case 'FORGOT_CLOSE':
+      return {
+        ...state,
+        auth: {
+          ...state.auth,
+          error: null,
+          loading: false,
+          forgotPassword: {
+            ...state.auth.forgotPassword,
+            isForgotMode: false,
+            step: 'request',
+            issuedCode: '',
+          },
+        },
+      };
+
+    case 'FORGOT_UPDATE_FIELD':
+      return {
+        ...state,
+        auth: {
+          ...state.auth,
+          error: null,
+          forgotPassword: {
+            ...state.auth.forgotPassword,
+            [action.payload.field]: action.payload.value,
+          },
+        },
+      };
+
+    case 'FORGOT_CODE_SENT':
+      return {
+        ...state,
+        auth: {
+          ...state.auth,
+          loading: false,
+          error: null,
+          forgotPassword: {
+            ...state.auth.forgotPassword,
+            step: 'reset',
+            issuedCode: action.payload.resetCode || '',
+            successMessage: action.payload.message,
+          },
+        },
+      };
+
+    case 'FORGOT_RESET_SUCCESS':
+      return {
+        ...state,
+        auth: {
+          ...state.auth,
+          loading: false,
+          error: null,
+          isLoginMode: true,
+          form: {
+            ...state.auth.form,
+            email: state.auth.forgotPassword.email,
+            password: '',
+          },
+          forgotPassword: {
+            isForgotMode: false,
+            step: 'request',
+            email: '',
+            code: '',
+            newPassword: '',
+            issuedCode: '',
+            successMessage: action.payload,
+          },
         },
       };
 

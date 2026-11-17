@@ -218,4 +218,60 @@ export const AuthController = {
       return res.status(500).json({ error: 'Failed to fetch user profile.' });
     }
   },
+
+  // POST /api/auth/forgot-password - Generate 6-digit reset code valid for 15 minutes
+  async forgotPassword(req, res) {
+    try {
+      const { email } = req.body;
+      if (!email || !email.trim()) {
+        return res.status(400).json({ error: 'Please enter your email address.' });
+      }
+
+      const existing = await UserModel.findByEmail(email);
+      if (!existing) {
+        return res.status(404).json({ error: 'No account found with that email address.' });
+      }
+
+      const resetCode = String(Math.floor(100000 + Math.random() * 900000));
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+      await UserModel.saveResetCode(email, resetCode, expiresAt);
+
+      return res.json({
+        message: '6-digit password reset code generated (valid for 15 minutes).',
+        resetCode,
+      });
+    } catch (err) {
+      console.error('Forgot password error:', err);
+      return res.status(500).json({ error: 'Failed to generate password reset code.' });
+    }
+  },
+
+  // POST /api/auth/reset-password - Verify 6-digit code and set new password
+  async resetPassword(req, res) {
+    try {
+      const { email, code, newPassword } = req.body;
+      if (!email || !code || !newPassword) {
+        return res.status(400).json({ error: 'Email, 6-digit code, and new password are required.' });
+      }
+      if (newPassword.length < 6) {
+        return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+      }
+
+      const newHash = await bcrypt.hash(newPassword, 10);
+      const updatedUser = await UserModel.verifyAndResetPassword(email, code, newHash);
+
+      if (!updatedUser) {
+        return res.status(400).json({
+          error: 'Invalid or expired reset code. Please request a new 6-digit code.',
+        });
+      }
+
+      return res.json({
+        message: 'Password has been reset successfully! You can now sign in.',
+      });
+    } catch (err) {
+      console.error('Reset password error:', err);
+      return res.status(500).json({ error: 'Failed to reset password.' });
+    }
+  },
 };

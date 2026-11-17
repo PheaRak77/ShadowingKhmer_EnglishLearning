@@ -82,4 +82,31 @@ export const UserModel = {
     const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING id', [userId]);
     return result.rows[0] || null;
   },
+
+  async saveResetCode(email, code, expiresAt) {
+    const result = await pool.query(
+      `UPDATE users
+       SET reset_code = $1,
+           reset_code_expires = $2
+       WHERE email = $3
+       RETURNING id, email, username`,
+      [code, expiresAt, email.trim().toLowerCase()]
+    );
+    return result.rows[0] || null;
+  },
+
+  async verifyAndResetPassword(email, code, newPasswordHash) {
+    const result = await pool.query(
+      `UPDATE users
+       SET password_hash = $1,
+           reset_code = NULL,
+           reset_code_expires = NULL
+       WHERE email = $2
+         AND reset_code = $3
+         AND reset_code_expires > NOW()
+       RETURNING id, username, email, role, google_id, avatar_url, created_at`,
+      [newPasswordHash, email.trim().toLowerCase(), code.trim()]
+    );
+    return result.rows[0] || null;
+  },
 };

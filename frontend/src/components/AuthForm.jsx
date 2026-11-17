@@ -10,6 +10,9 @@ import {
   Languages,
   BookOpen,
   X,
+  KeyRound,
+  ArrowLeft,
+  CheckCircle2,
 } from 'lucide-react';
 import { useAppContext } from '../reducer/appReducer.js';
 import Footer from './Footer.jsx';
@@ -42,7 +45,7 @@ export function GoogleIcon({ className = 'w-4 h-4' }) {
 
 export default function AuthForm({ isModal = false, onClose }) {
   const { state, dispatch } = useAppContext();
-  const { isLoginMode, form, loading, error } = state.auth;
+  const { isLoginMode, form, loading, error, forgotPassword } = state.auth;
   const { googleClientId } = state;
 
   // Fetch GOOGLE_CLIENT_ID configured in backend/.env
@@ -106,6 +109,70 @@ export default function AuthForm({ isModal = false, onClose }) {
       dispatch({
         type: 'AUTH_FAILURE',
         payload: 'Unable to reach the server. Please verify the backend is running on port 5000.',
+      });
+    }
+  };
+
+  // Step 1 of Forgot Password: Request 6-digit reset code
+  const handleRequestResetCode = async (e) => {
+    e.preventDefault();
+    dispatch({ type: 'AUTH_START' });
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotPassword.email }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        dispatch({
+          type: 'AUTH_FAILURE',
+          payload: data.error || 'Could not generate reset code.',
+        });
+        return;
+      }
+      dispatch({
+        type: 'FORGOT_CODE_SENT',
+        payload: { message: data.message, resetCode: data.resetCode },
+      });
+    } catch {
+      dispatch({
+        type: 'AUTH_FAILURE',
+        payload: 'Unable to reach the server to request a reset code.',
+      });
+    }
+  };
+
+  // Step 2 of Forgot Password: Verify code & save new password
+  const handleConfirmResetPassword = async (e) => {
+    e.preventDefault();
+    dispatch({ type: 'AUTH_START' });
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: forgotPassword.email,
+          code: forgotPassword.code,
+          newPassword: forgotPassword.newPassword,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        dispatch({
+          type: 'AUTH_FAILURE',
+          payload: data.error || 'Could not reset password.',
+        });
+        return;
+      }
+      dispatch({
+        type: 'FORGOT_RESET_SUCCESS',
+        payload: data.message,
+      });
+    } catch {
+      dispatch({
+        type: 'AUTH_FAILURE',
+        payload: 'Unable to reach the server to reset password.',
       });
     }
   };
@@ -236,6 +303,157 @@ export default function AuthForm({ isModal = false, onClose }) {
 
         {/* Auth Card */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-6 sm:p-8">
+          {forgotPassword.isForgotMode ? (
+            <div className="space-y-5">
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'FORGOT_CLOSE' })}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 cursor-pointer"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Back to Sign In</span>
+                </button>
+              </div>
+
+              <div>
+                <div className="w-11 h-11 rounded-xl bg-blue-50 text-[#2563EB] flex items-center justify-center mb-3">
+                  <KeyRound className="w-5 h-5" />
+                </div>
+                <h2 className="text-lg font-extrabold text-slate-900">
+                  {forgotPassword.step === 'request' ? 'Forgot Password?' : 'Reset Your Password'}
+                </h2>
+                <p className="text-xs text-slate-500 mt-1 khmer-text">
+                  {forgotPassword.step === 'request'
+                    ? 'បញ្ចូលអ៊ីមែលរបស់អ្នក ដើម្បីទទួលបានលេខកូដ 6 ខ្ទង់សម្រាប់កំណត់ពាក្យសម្ងាត់ថ្មី។'
+                    : 'បញ្ចូលលេខកូដ 6 ខ្ទង់ និងពាក្យសម្ងាត់ថ្មីរបស់អ្នក។'}
+                </p>
+              </div>
+
+              {error && (
+                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs sm:text-sm font-medium">
+                  {error}
+                </div>
+              )}
+
+              {forgotPassword.issuedCode && forgotPassword.step === 'reset' && (
+                <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-xs space-y-1">
+                  <div className="font-bold">Your 6-Digit Reset Code:</div>
+                  <div className="text-lg font-extrabold tracking-widest text-[#2563EB]">
+                    {forgotPassword.issuedCode}
+                  </div>
+                </div>
+              )}
+
+              {forgotPassword.step === 'request' ? (
+                <form onSubmit={handleRequestResetCode} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
+                      Email Address
+                    </label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="email"
+                        required
+                        placeholder="your.email@gmail.com"
+                        value={forgotPassword.email}
+                        onChange={(e) =>
+                          dispatch({
+                            type: 'FORGOT_UPDATE_FIELD',
+                            payload: { field: 'email', value: e.target.value },
+                          })
+                        }
+                        className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-[#2563EB]"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full inline-flex items-center justify-center gap-2 py-3 px-5 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-sm shadow-sm cursor-pointer"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Generating Code...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Get 6-Digit Reset Code</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handleConfirmResetPassword} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
+                      6-Digit Code
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      maxLength={6}
+                      placeholder="123456"
+                      value={forgotPassword.code}
+                      onChange={(e) =>
+                        dispatch({
+                          type: 'FORGOT_UPDATE_FIELD',
+                          payload: { field: 'code', value: e.target.value },
+                        })
+                      }
+                      className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-sm tracking-widest font-bold focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
+                      New Password
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="password"
+                        required
+                        minLength={6}
+                        placeholder="••••••••"
+                        value={forgotPassword.newPassword}
+                        onChange={(e) =>
+                          dispatch({
+                            type: 'FORGOT_UPDATE_FIELD',
+                            payload: { field: 'newPassword', value: e.target.value },
+                          })
+                        }
+                        className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-sm focus:bg-white focus:outline-none focus:border-[#2563EB]"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full inline-flex items-center justify-center gap-2 py-3 px-5 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-sm shadow-sm cursor-pointer"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Updating Password...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Save New Password</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
+            </div>
+          ) : (
+            <>
           {isModal && (
             <div className="text-center mb-5 pr-4">
               <h2 className="text-lg font-extrabold text-slate-900">
@@ -244,6 +462,13 @@ export default function AuthForm({ isModal = false, onClose }) {
               <p className="text-xs text-slate-500 mt-0.5 khmer-text">
                 បង្កើតគណនីឥតគិតថ្លៃ ដើម្បីបង្កើតមេរៀន YouTube, Dictation, Flashcards & Grammar
               </p>
+            </div>
+          )}
+
+          {forgotPassword.successMessage && (
+            <div className="mb-5 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs sm:text-sm font-medium flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>{forgotPassword.successMessage}</span>
             </div>
           )}
           {/* Mode Switch Tabs */}
@@ -335,9 +560,20 @@ export default function AuthForm({ isModal = false, onClose }) {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
+                  Password
+                </label>
+                {isLoginMode && (
+                  <button
+                    type="button"
+                    onClick={() => dispatch({ type: 'FORGOT_OPEN' })}
+                    className="text-xs font-semibold text-[#2563EB] hover:underline cursor-pointer"
+                  >
+                    Forgot password?
+                  </button>
+                )}
+              </div>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
@@ -383,6 +619,8 @@ export default function AuthForm({ isModal = false, onClose }) {
               </button>
             </p>
           </div>
+            </>
+          )}
         </div>
       </div>
       </div>
