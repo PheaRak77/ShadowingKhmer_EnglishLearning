@@ -114,13 +114,23 @@ export const LessonController = {
     let aiData;
     try {
       const aiStart = Date.now();
-      aiData = await generateLessonWithGemini(extractedSentences, videoId);
-      console.log(
-        `⚡ Gemini translated ${extractedSentences.length} sentences in ${(
-          (Date.now() - aiStart) /
-          1000
-        ).toFixed(1)}s (total: ${((Date.now() - startTime) / 1000).toFixed(1)}s)`
-      );
+      if (extractedSentences.precomputedAiData) {
+        aiData = extractedSentences.precomputedAiData;
+        console.log(
+          `⚡ Single-shot AI completed all ${extractedSentences.length} sentences + Khmer + vocab + grammar in ${(
+            (Date.now() - startTime) /
+            1000
+          ).toFixed(1)}s`
+        );
+      } else {
+        aiData = await generateLessonWithGemini(extractedSentences, videoId);
+        console.log(
+          `⚡ Gemini translated ${extractedSentences.length} sentences in ${(
+            (Date.now() - aiStart) /
+            1000
+          ).toFixed(1)}s (total: ${((Date.now() - startTime) / 1000).toFixed(1)}s)`
+        );
+      }
     } catch (aiError) {
       console.error('Gemini API generation error:', aiError.message);
       return res.status(502).json({

@@ -189,8 +189,8 @@ export const initialState = {
   notification: null,
   practiceMode: 'lesson', // 'lesson' | 'dictation' | 'vocabulary' | 'grammar'
   activeSentenceIndex: 1,
-  visibleKhmerMap: { 1: true },
-  showAllKhmer: false,
+  visibleKhmerMap: { 1: true, 2: true, 3: true, 4: true, 5: true, 6: true },
+  showAllKhmer: true,
   completedSentencesMap: {},
   sentenceSearchQuery: '',
   playbackRate: 1,
@@ -484,6 +484,10 @@ export function appReducer(state, action) {
         { ...lesson, sentence_count: sentences.length },
         ...state.lessonsList.filter((l) => l.id !== lesson.id),
       ];
+      const autoKhmerMap = {};
+      (sentences || []).forEach((s) => {
+        autoKhmerMap[s.sentence_index] = true;
+      });
       return {
         ...state,
         creatingLesson: false,
@@ -496,8 +500,8 @@ export function appReducer(state, action) {
         lessonsList: updatedList,
         practiceMode: 'lesson',
         activeSentenceIndex: 1,
-        visibleKhmerMap: { 1: true },
-        showAllKhmer: false,
+        visibleKhmerMap: autoKhmerMap,
+        showAllKhmer: true,
         completedSentencesMap: {},
         sentenceSearchQuery: '',
         selectedWordPopup: null,
@@ -530,6 +534,10 @@ export function appReducer(state, action) {
 
     case 'LOAD_LESSON_SUCCESS': {
       const { lesson, sentences, vocabulary, grammar_points } = action.payload;
+      const autoKhmerMap = {};
+      (sentences || []).forEach((s) => {
+        autoKhmerMap[s.sentence_index] = true;
+      });
       return {
         ...state,
         loadingLesson: false,
@@ -539,8 +547,8 @@ export function appReducer(state, action) {
         vocabulary: vocabulary || [],
         grammarPoints: grammar_points || [],
         activeSentenceIndex: 1,
-        visibleKhmerMap: { 1: true },
-        showAllKhmer: false,
+        visibleKhmerMap: autoKhmerMap,
+        showAllKhmer: true,
         completedSentencesMap: {},
         sentenceSearchQuery: '',
         selectedWordPopup: null,
