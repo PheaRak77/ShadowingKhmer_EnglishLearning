@@ -205,11 +205,30 @@ export async function ensureSchemaUpToDate() {
           example_km TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS app_settings (
+          key VARCHAR(100) PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      INSERT INTO app_settings (key, value)
+      VALUES ('student_limit_max', '1'), ('student_limit_days', '2')
+      ON CONFLICT (key) DO NOTHING;
+
+      CREATE TABLE IF NOT EXISTS lesson_usage_logs (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+          video_id VARCHAR(50),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
       ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'student' NOT NULL;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_code VARCHAR(10);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_code_expires TIMESTAMP;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_limit_max INTEGER;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_limit_days INTEGER;
       ALTER TABLE users ALTER COLUMN role SET DEFAULT 'student';
       UPDATE users SET role = 'student' WHERE role NOT IN ('admin', 'student');
       UPDATE users SET google_id = NULL WHERE google_id LIKE 'google_%';

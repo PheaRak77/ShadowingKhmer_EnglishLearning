@@ -31,6 +31,7 @@ export const AdminModel = {
   async getAllUsersWithActivity() {
     const result = await pool.query(`
       SELECT u.id, u.username, u.email, u.role, u.google_id, u.avatar_url, u.created_at,
+             u.custom_limit_max, u.custom_limit_days,
              COUNT(DISTINCT l.id)::int AS lesson_count,
              COUNT(DISTINCT v.id)::int AS vocab_count
       FROM users u

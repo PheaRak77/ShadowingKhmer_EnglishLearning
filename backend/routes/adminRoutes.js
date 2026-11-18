@@ -7,7 +7,9 @@ const router = Router();
 router.use(authenticateToken, requireAdmin);
 
 router.get('/overview', AdminController.getDashboardOverview);
+router.patch('/settings/student-limit', AdminController.updateStudentLimit);
 router.patch('/users/:id/role', AdminController.updateUserRole);
+router.patch('/users/:id/limit', AdminController.updateUserLimit);
 router.delete('/users/:id', AdminController.deleteUser);
 router.delete('/lessons/:id', AdminController.deleteLesson);
 

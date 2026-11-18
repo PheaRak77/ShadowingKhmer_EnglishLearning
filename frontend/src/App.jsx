@@ -152,6 +152,7 @@ export default function App() {
     activeScreen,
     isMobileMenuOpen,
     lessonsList,
+    studentQuota,
     lessonCache,
     myLessonsSearchQuery,
     isLessonsDrawerOpen,
@@ -231,7 +232,10 @@ export default function App() {
         if (lessonsRes.ok) {
           const lessonsData = await parseJsonSafe(lessonsRes);
           const list = lessonsData.lessons || [];
-          dispatch({ type: 'SET_LESSONS_LIST', payload: list });
+          dispatch({
+            type: 'SET_LESSONS_LIST',
+            payload: { lessons: list, quota: lessonsData.quota || null },
+          });
 
           if (list.length > 0) {
             loadLessonById(list[0].id, auth.token);
@@ -560,6 +564,9 @@ export default function App() {
       const data = await parseJsonSafe(res);
 
       if (!res.ok) {
+        if (data.quota) {
+          dispatch({ type: 'SET_STUDENT_QUOTA', payload: data.quota });
+        }
         dispatch({
           type: 'CREATE_LESSON_FAILURE',
           payload: data.error || 'Failed to create lesson from this YouTube URL.',
@@ -1238,6 +1245,30 @@ export default function App() {
                   )}
                 </button>
               </form>
+
+              {!isGuest && auth.user?.role === 'student' && studentQuota && !studentQuota.isUnlimited && (
+                <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs px-1">
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-semibold border ${
+                      studentQuota.remaining > 0
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : 'bg-amber-50 text-amber-800 border-amber-200'
+                    }`}
+                  >
+                    YouTube Link Quota: {studentQuota.remaining} / {studentQuota.maxLessons} remaining
+                    <span className="font-normal text-slate-500">
+                      ({studentQuota.maxLessons} video{studentQuota.maxLessons === 1 ? '' : 's'} per{' '}
+                      {studentQuota.windowDays} day{studentQuota.windowDays === 1 ? '' : 's'})
+                    </span>
+                  </span>
+                  {studentQuota.remaining === 0 && studentQuota.nextResetAt && (
+                    <span className="text-[11px] font-medium text-amber-700">
+                      Next link available:{' '}
+                      {new Date(studentQuota.nextResetAt).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              )}
 
               {/* Animated 3-Step Loading Percentage Card */}
               {creatingLesson && (

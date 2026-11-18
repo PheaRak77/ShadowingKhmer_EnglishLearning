@@ -1,4 +1,5 @@
 import { LessonModel } from '../models/lessonModel.js';
+import { LimitModel } from '../models/limitModel.js';
 import { pool } from '../config/db.js';
 import {
   extractYouTubeId,
@@ -44,12 +45,35 @@ async function healMissingKhmerTranslations(details) {
   return details;
 }
 
+function formatQuotaErrorMessage(quota) {
+  let waitHint = '';
+  if (quota?.nextResetAt) {
+    const diffMs = Math.max(60000, new Date(quota.nextResetAt).getTime() - Date.now());
+    const totalHours = Math.floor(diffMs / 3600000);
+    const days = Math.floor(totalHours / 24);
+    const hours = totalHours % 24;
+    const mins = Math.ceil((diffMs % 3600000) / 60000);
+    waitHint =
+      days > 0
+        ? ` Next link available in ${days}d ${hours}h.`
+        : totalHours > 0
+        ? ` Next link available in ${totalHours}h ${mins}m.`
+        : ` Next link available in ${mins}m.`;
+  }
+  return `Student limit reached (${quota.maxLessons} video link${
+    quota.maxLessons === 1 ? '' : 's'
+  } every ${quota.windowDays} day${quota.windowDays === 1 ? '' : 's'}).${waitHint} Ask your Admin to adjust or reset your limit.`;
+}
+
 export const LessonController = {
   // GET /api/lessons
   async getUserLessons(req, res) {
     try {
-      const lessons = await LessonModel.findAllByUserId(req.user.id);
-      return res.json({ lessons });
+      const [lessons, quota] = await Promise.all([
+        LessonModel.findAllByUserId(req.user.id),
+        LimitModel.getUserQuotaStatus(req.user.id, req.user.role),
+      ]);
+      return res.json({ lessons, quota });
     } catch (err) {
       console.error('Get lessons error:', err);
       return res.status(500).json({ error: 'Failed to fetch lessons.' });
@@ -89,16 +113,32 @@ export const LessonController = {
       return res.status(400).json({ error: 'Please provide a valid YouTube video URL.' });
     }
 
-    // Instant return (0.02s) if this user already created a lesson for this YouTube video (unless providing manual transcript)
+    // Instant return (0.02s) if this user already created a lesson for this YouTube video (does not consume quota)
     if (!manualTranscript) {
       try {
         const existing = await LessonModel.findExistingByVideoId(videoId, req.user.id);
         if (existing) {
           console.log(`⚡ Instant cache hit from PostgreSQL for video ${videoId}`);
-          const healed = await healMissingKhmerTranslations(existing);
-          return res.status(200).json(healed);
+          const [healed, quota] = await Promise.all([
+            healMissingKhmerTranslations(existing),
+            LimitModel.getUserQuotaStatus(req.user.id, req.user.role),
+          ]);
+          return res.status(200).json({ ...healed, quota });
         }
       } catch {}
+    }
+
+    // Enforce Student YouTube URL creation quota before invoking external APIs
+    try {
+      const quota = await LimitModel.getUserQuotaStatus(req.user.id, req.user.role);
+      if (!quota.isUnlimited && quota.remaining <= 0) {
+        return res.status(429).json({
+          error: formatQuotaErrorMessage(quota),
+          quota,
+        });
+      }
+    } catch (quotaErr) {
+      console.warn('Quota check warning:', quotaErr.message);
     }
 
     let extractedSentences;
@@ -165,7 +205,12 @@ export const LessonController = {
         aiData,
       });
 
-      return res.status(201).json(created);
+      if (req.user.role !== 'admin') {
+        await LimitModel.recordUsage(req.user.id, videoId).catch(() => {});
+      }
+      const quota = await LimitModel.getUserQuotaStatus(req.user.id, req.user.role).catch(() => null);
+
+      return res.status(201).json({ ...created, quota });
     } catch (dbErr) {
       console.error('Transaction error creating lesson:', dbErr);
       return res.status(500).json({ error: 'Database transaction failed while saving lesson.' });

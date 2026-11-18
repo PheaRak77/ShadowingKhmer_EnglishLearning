@@ -182,8 +182,14 @@ export const initialState = {
     lessons: [],
     activeTab: 'users',
     searchQuery: '',
+    studentLimit: { maxLessons: 1, windowDays: 2 },
+    limitForm: { maxLessons: '1', windowDays: '2' },
+    savingLimit: false,
+    editingUserLimitId: null,
+    userLimitForm: { maxLessons: '', windowDays: '' },
   },
   lessonsList: [],
+  studentQuota: null,
   lessonCache: { 0: DEMO_LESSON_DATA },
   myLessonsSearchQuery: '',
   isLessonsDrawerOpen: false,
@@ -449,7 +455,8 @@ export function appReducer(state, action) {
         },
       };
 
-    case 'ADMIN_LOAD_SUCCESS':
+    case 'ADMIN_LOAD_SUCCESS': {
+      const sl = action.payload.studentLimit || state.adminDashboard.studentLimit;
       return {
         ...state,
         adminDashboard: {
@@ -458,8 +465,108 @@ export function appReducer(state, action) {
           stats: action.payload.stats,
           users: action.payload.users || [],
           lessons: action.payload.lessons || [],
+          studentLimit: sl,
+          limitForm: {
+            maxLessons: String(sl.maxLessons ?? 1),
+            windowDays: String(sl.windowDays ?? 2),
+          },
         },
       };
+    }
+
+    case 'ADMIN_UPDATE_LIMIT_FIELD':
+      return {
+        ...state,
+        adminDashboard: {
+          ...state.adminDashboard,
+          limitForm: {
+            ...state.adminDashboard.limitForm,
+            [action.payload.field]: action.payload.value,
+          },
+        },
+      };
+
+    case 'ADMIN_LIMIT_SAVE_START':
+      return {
+        ...state,
+        adminDashboard: {
+          ...state.adminDashboard,
+          savingLimit: true,
+        },
+      };
+
+    case 'ADMIN_LIMIT_SAVE_DONE': {
+      const sl = action.payload?.studentLimit || state.adminDashboard.studentLimit;
+      return {
+        ...state,
+        adminDashboard: {
+          ...state.adminDashboard,
+          savingLimit: false,
+          studentLimit: sl,
+          limitForm: {
+            maxLessons: String(sl.maxLessons ?? 1),
+            windowDays: String(sl.windowDays ?? 2),
+          },
+          users: action.payload?.users || state.adminDashboard.users,
+        },
+      };
+    }
+
+    case 'ADMIN_OPEN_USER_LIMIT_EDIT':
+      return {
+        ...state,
+        adminDashboard: {
+          ...state.adminDashboard,
+          editingUserLimitId: action.payload ? action.payload.id : null,
+          userLimitForm: action.payload
+            ? {
+                maxLessons:
+                  action.payload.custom_limit_max !== null &&
+                  action.payload.custom_limit_max !== undefined
+                    ? String(action.payload.custom_limit_max)
+                    : '',
+                windowDays:
+                  action.payload.custom_limit_days !== null &&
+                  action.payload.custom_limit_days !== undefined
+                    ? String(action.payload.custom_limit_days)
+                    : '',
+              }
+            : { maxLessons: '', windowDays: '' },
+        },
+      };
+
+    case 'ADMIN_UPDATE_USER_LIMIT_FIELD':
+      return {
+        ...state,
+        adminDashboard: {
+          ...state.adminDashboard,
+          userLimitForm: {
+            ...state.adminDashboard.userLimitForm,
+            [action.payload.field]: action.payload.value,
+          },
+        },
+      };
+
+    case 'ADMIN_USER_LIMIT_UPDATED': {
+      const updatedUser = action.payload;
+      return {
+        ...state,
+        adminDashboard: {
+          ...state.adminDashboard,
+          editingUserLimitId: null,
+          users: state.adminDashboard.users.map((u) =>
+            u.id === updatedUser.id
+              ? {
+                  ...u,
+                  custom_limit_max: updatedUser.custom_limit_max,
+                  custom_limit_days: updatedUser.custom_limit_days,
+                  quota: updatedUser.quota,
+                }
+              : u
+          ),
+        },
+      };
+    }
 
     case 'ADMIN_LOAD_FAILURE':
       return {
@@ -547,7 +654,19 @@ export function appReducer(state, action) {
     case 'SET_LESSONS_LIST':
       return {
         ...state,
-        lessonsList: action.payload,
+        lessonsList: Array.isArray(action.payload)
+          ? action.payload
+          : action.payload.lessons || [],
+        studentQuota:
+          !Array.isArray(action.payload) && action.payload.quota
+            ? action.payload.quota
+            : state.studentQuota,
+      };
+
+    case 'SET_STUDENT_QUOTA':
+      return {
+        ...state,
+        studentQuota: action.payload,
       };
 
     case 'SET_MY_LESSONS_SEARCH':
@@ -590,7 +709,7 @@ export function appReducer(state, action) {
       };
 
     case 'CREATE_LESSON_SUCCESS': {
-      const { lesson, sentences, vocabulary, grammar_points } = action.payload;
+      const { lesson, sentences, vocabulary, grammar_points, quota } = action.payload;
       const updatedList = [
         { ...lesson, sentence_count: sentences.length },
         ...state.lessonsList.filter((l) => l.id !== lesson.id),
@@ -609,6 +728,7 @@ export function appReducer(state, action) {
         vocabulary,
         grammarPoints: grammar_points,
         lessonsList: updatedList,
+        studentQuota: quota || state.studentQuota,
         lessonCache: {
           ...state.lessonCache,
           [lesson.id]: { lesson, sentences, vocabulary, grammar_points },

@@ -13,6 +13,8 @@ import {
   ExternalLink,
   Crown,
   Loader2,
+  SlidersHorizontal,
+  RotateCcw,
 } from 'lucide-react';
 import { useAppContext } from '../reducer/appReducer.js';
 import { GoogleIcon } from './AuthForm.jsx';
@@ -35,7 +37,19 @@ async function parseJsonSafe(response) {
 export default function AdminDashboard({ onOpenLesson }) {
   const { state, dispatch } = useAppContext();
   const { auth, adminDashboard } = state;
-  const { loading, stats, users, lessons, activeTab, searchQuery } = adminDashboard;
+  const {
+    loading,
+    stats,
+    users,
+    lessons,
+    activeTab,
+    searchQuery,
+    studentLimit,
+    limitForm,
+    savingLimit,
+    editingUserLimitId,
+    userLimitForm,
+  } = adminDashboard;
 
   const fetchAdminOverview = async () => {
     dispatch({ type: 'ADMIN_LOAD_START' });
@@ -146,6 +160,115 @@ export default function AdminDashboard({ onOpenLesson }) {
       dispatch({
         type: 'SET_NOTIFICATION',
         payload: { type: 'error', message: 'Network error while deleting lesson.' },
+      });
+    }
+  };
+
+  const handleSaveGlobalLimit = async (e) => {
+    e.preventDefault();
+    dispatch({ type: 'ADMIN_LIMIT_SAVE_START' });
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/settings/student-limit`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({
+          maxLessons: Number(limitForm.maxLessons),
+          windowDays: Number(limitForm.windowDays),
+        }),
+      });
+      const data = await parseJsonSafe(res);
+      if (res.ok && data.studentLimit) {
+        dispatch({ type: 'ADMIN_LIMIT_SAVE_DONE', payload: data });
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: {
+            type: 'success',
+            message: `Student limit updated: ${data.studentLimit.maxLessons} video(s) per ${data.studentLimit.windowDays} day(s).`,
+          },
+        });
+      } else {
+        dispatch({ type: 'ADMIN_LIMIT_SAVE_DONE' });
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: { type: 'error', message: data.error || 'Failed to update student limit.' },
+        });
+      }
+    } catch {
+      dispatch({ type: 'ADMIN_LIMIT_SAVE_DONE' });
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: { type: 'error', message: 'Network error while saving student limit.' },
+      });
+    }
+  };
+
+  const handleSaveUserCustomLimit = async (userId, resetToDefault = false) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/users/${userId}/limit`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({
+          customLimitMax: resetToDefault ? null : userLimitForm.maxLessons,
+          customLimitDays: resetToDefault ? null : userLimitForm.windowDays,
+        }),
+      });
+      const data = await parseJsonSafe(res);
+      if (res.ok && data.user) {
+        dispatch({ type: 'ADMIN_USER_LIMIT_UPDATED', payload: data.user });
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: {
+            type: 'success',
+            message: resetToDefault
+              ? `Reset ${data.user.username} to default student limit.`
+              : `Updated custom YouTube limit for ${data.user.username}.`,
+          },
+        });
+      } else {
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: { type: 'error', message: data.error || 'Failed to update custom limit.' },
+        });
+      }
+    } catch {
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: { type: 'error', message: 'Network error updating student limit.' },
+      });
+    }
+  };
+
+  const handleResetUserQuota = async (targetUser) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/users/${targetUser.id}/limit`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({ resetQuota: true }),
+      });
+      const data = await parseJsonSafe(res);
+      if (res.ok && data.user) {
+        dispatch({ type: 'ADMIN_USER_LIMIT_UPDATED', payload: data.user });
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: {
+            type: 'success',
+            message: `Reset YouTube link cooldown for ${targetUser.username}.`,
+          },
+        });
+      }
+    } catch {
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: { type: 'error', message: 'Network error resetting quota.' },
       });
     }
   };
@@ -267,6 +390,76 @@ export default function AdminDashboard({ onOpenLesson }) {
         </div>
       </div>
 
+      {/* Student YouTube URL Limit Settings Card */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:px-6 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex items-start sm:items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shrink-0">
+            <SlidersHorizontal className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-sm sm:text-base font-bold text-slate-900">
+              Student YouTube Link Limit
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Default quota is{' '}
+              <span className="font-semibold text-slate-700">
+                {studentLimit.maxLessons} video{studentLimit.maxLessons === 1 ? '' : 's'}
+              </span>{' '}
+              every{' '}
+              <span className="font-semibold text-slate-700">
+                {studentLimit.windowDays} day{studentLimit.windowDays === 1 ? '' : 's'}
+              </span>
+              . Admins always have unlimited access.
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={handleSaveGlobalLimit} className="flex flex-wrap items-center gap-2.5">
+          <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+            <span>Max Videos:</span>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={limitForm.maxLessons}
+              onChange={(e) =>
+                dispatch({
+                  type: 'ADMIN_UPDATE_LIMIT_FIELD',
+                  payload: { field: 'maxLessons', value: e.target.value },
+                })
+              }
+              className="w-16 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 text-center focus:bg-white focus:outline-none focus:border-[#2563EB]"
+            />
+          </label>
+
+          <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+            <span>Every (Days):</span>
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={limitForm.windowDays}
+              onChange={(e) =>
+                dispatch({
+                  type: 'ADMIN_UPDATE_LIMIT_FIELD',
+                  payload: { field: 'windowDays', value: e.target.value },
+                })
+              }
+              className="w-16 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 text-center focus:bg-white focus:outline-none focus:border-[#2563EB]"
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={savingLimit}
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-60 text-xs font-bold text-white shadow-sm cursor-pointer"
+          >
+            {savingLimit && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            <span>Save Limit</span>
+          </button>
+        </form>
+      </div>
+
       {/* Management Card: Tabs + Search + Tables */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         {/* Top Bar */}
@@ -327,6 +520,7 @@ export default function AdminDashboard({ onOpenLesson }) {
                   <th className="py-3.5 px-6">User</th>
                   <th className="py-3.5 px-4">Google OAuth</th>
                   <th className="py-3.5 px-4">Role (Admin / Student)</th>
+                  <th className="py-3.5 px-4">YouTube Quota</th>
                   <th className="py-3.5 px-4">Activity</th>
                   <th className="py-3.5 px-4">Joined</th>
                   <th className="py-3.5 px-6 text-right">Actions</th>
@@ -390,6 +584,98 @@ export default function AdminDashboard({ onOpenLesson }) {
                       </span>
                     </td>
 
+                    <td className="py-3.5 px-4">
+                      {u.role === 'admin' ? (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-50 text-[#2563EB]">
+                          Unlimited
+                        </span>
+                      ) : editingUserLimitId === u.id ? (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            placeholder={String(studentLimit.maxLessons)}
+                            value={userLimitForm.maxLessons}
+                            onChange={(e) =>
+                              dispatch({
+                                type: 'ADMIN_UPDATE_USER_LIMIT_FIELD',
+                                payload: { field: 'maxLessons', value: e.target.value },
+                              })
+                            }
+                            className="w-12 px-1.5 py-1 rounded-lg border border-slate-300 text-xs text-center"
+                            title="Videos allowed (0 = block)"
+                          />
+                          <span className="text-[11px] text-slate-400">/</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={365}
+                            placeholder={String(studentLimit.windowDays)}
+                            value={userLimitForm.windowDays}
+                            onChange={(e) =>
+                              dispatch({
+                                type: 'ADMIN_UPDATE_USER_LIMIT_FIELD',
+                                payload: { field: 'windowDays', value: e.target.value },
+                              })
+                            }
+                            className="w-12 px-1.5 py-1 rounded-lg border border-slate-300 text-xs text-center"
+                            title="Days window"
+                          />
+                          <span className="text-[11px] text-slate-400">d</span>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveUserCustomLimit(u.id, false)}
+                            className="px-2 py-1 rounded-lg bg-[#2563EB] text-white text-[11px] font-bold cursor-pointer"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveUserCustomLimit(u.id, true)}
+                            className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600 text-[11px] font-semibold cursor-pointer"
+                            title="Revert to global student default"
+                          >
+                            Default
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+                              (u.quota?.remaining ?? 1) > 0
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-amber-50 text-amber-800 border-amber-200'
+                            }`}
+                          >
+                            {u.quota?.usedCount ?? 0}/{u.quota?.maxLessons ?? studentLimit.maxLessons} per{' '}
+                            {u.quota?.windowDays ?? studentLimit.windowDays}d
+                            {u.quota?.isCustom && ' (Custom)'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              dispatch({ type: 'ADMIN_OPEN_USER_LIMIT_EDIT', payload: u })
+                            }
+                            className="px-2 py-0.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-[11px] font-semibold text-slate-600 cursor-pointer"
+                            title="Set custom YouTube limit for this student"
+                          >
+                            Set
+                          </button>
+                          {(u.quota?.usedCount ?? 0) > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => handleResetUserQuota(u)}
+                              className="p-1 rounded-lg text-slate-400 hover:text-[#2563EB] hover:bg-blue-50 cursor-pointer"
+                              title="Reset student cooldown now"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </td>
+
                     <td className="py-3.5 px-4 text-xs text-slate-600">
                       <span className="font-semibold text-slate-800">{u.lesson_count}</span>{' '}
                       lessons •{' '}
@@ -428,7 +714,7 @@ export default function AdminDashboard({ onOpenLesson }) {
 
                 {filteredUsers.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-xs text-slate-400">
+                    <td colSpan={7} className="py-8 text-center text-xs text-slate-400">
                       No matching users found.
                     </td>
                   </tr>
