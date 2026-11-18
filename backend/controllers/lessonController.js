@@ -4,6 +4,7 @@ import {
   extractYouTubeId,
   fetchYoutubeCaptionsWithYtDlp,
   parseManualTranscript,
+  parsePrefetchedVtt,
 } from '../services/youtubeService.js';
 import {
   generateLessonWithGemini,
@@ -81,7 +82,7 @@ export const LessonController = {
   // POST /api/lessons/create
   async createLesson(req, res) {
     const startTime = Date.now();
-    const { videoUrl, manualTranscript } = req.body;
+    const { videoUrl, manualTranscript, prefetchedVtt, prefetchedTitle } = req.body;
     const videoId = extractYouTubeId(videoUrl);
 
     if (!videoId) {
@@ -108,7 +109,11 @@ export const LessonController = {
         if (!extractedSentences || extractedSentences.length === 0) {
           return res.status(400).json({ error: 'Please paste at least one valid English sentence.' });
         }
-      } else {
+      } else if (prefetchedVtt && typeof prefetchedVtt === 'string' && prefetchedVtt.trim()) {
+        extractedSentences = await parsePrefetchedVtt(prefetchedVtt, videoId, prefetchedTitle);
+      }
+
+      if (!extractedSentences) {
         extractedSentences = await fetchYoutubeCaptionsWithYtDlp(videoUrl, videoId);
       }
       console.log(

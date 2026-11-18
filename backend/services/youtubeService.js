@@ -299,78 +299,124 @@ async function fetchVideoTitleOembed(videoId) {
   }
 }
 
-// Tier 1 (Fastest ~0.3s, works on Cloud & Local): Direct YouTube InnerTube IOS API caption extraction
-async function fetchCaptionsViaInnerTubeIOS(videoId) {
-  const iosUserAgent =
-    'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)';
-  const playerRes = await fetch('https://www.youtube.com/youtubei/v1/player', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': iosUserAgent,
-    },
-    body: JSON.stringify({
-      videoId,
-      context: {
-        client: {
-          clientName: 'IOS',
-          clientVersion: '20.10.4',
-          deviceMake: 'Apple',
-          deviceModel: 'iPhone16,2',
-          hl: 'en',
-          gl: 'US',
-        },
-      },
-    }),
-    signal: AbortSignal.timeout(6000),
-  });
-
-  if (!playerRes.ok) {
-    throw new Error(`InnerTube status ${playerRes.status}`);
+export async function parsePrefetchedVtt(vttContent, videoId, prefetchedTitle = '') {
+  if (!vttContent || typeof vttContent !== 'string' || !vttContent.trim()) {
+    return null;
   }
-  const playerData = await playerRes.json();
-  const tracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
-  if (tracks.length === 0) {
-    throw new Error('No English captions returned by InnerTube');
-  }
-
-  // Prefer human English captions first, then auto-generated ('asr'), then any en*
-  const englishTrack =
-    tracks.find((t) => /^en(-|$)/i.test(t.languageCode) && t.kind !== 'asr') ||
-    tracks.find((t) => /^en(-|$)/i.test(t.languageCode)) ||
-    tracks.find((t) => (t.languageCode || '').toLowerCase().startsWith('en'));
-
-  if (!englishTrack?.baseUrl) {
-    throw new Error('Video has no English caption track');
-  }
-
-  const vttUrl = englishTrack.baseUrl.includes('fmt=')
-    ? englishTrack.baseUrl
-    : `${englishTrack.baseUrl}&fmt=vtt`;
-
-  const vttRes = await fetch(vttUrl, {
-    headers: { 'User-Agent': iosUserAgent },
-    signal: AbortSignal.timeout(6000),
-  });
-  if (!vttRes.ok) {
-    throw new Error(`Caption download failed (${vttRes.status})`);
-  }
-  const vttContent = await vttRes.text();
-  if (!vttContent || !vttContent.trim()) {
-    throw new Error('Empty caption track returned');
-  }
-
-  const sentences = parseVttAndMergeSentences(vttContent);
+  const sentences = parseVttAndMergeSentences(vttContent.slice(0, 500000));
   if (!sentences || sentences.length === 0) {
-    throw new Error('Parsed 0 spoken sentences from VTT');
+    return null;
   }
-
   sentences.videoTitle =
-    (playerData?.videoDetails?.title || '').trim() || (await fetchVideoTitleOembed(videoId));
+    (prefetchedTitle || '').trim() || (await fetchVideoTitleOembed(videoId));
   return sentences;
 }
 
-// Cloud Fallback Extraction via Gemini native YouTube ingestion (used only when no VTT captions exist)
+const INNERTUBE_CLIENTS = [
+  {
+    name: 'IOS',
+    userAgent: 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+    context: {
+      clientName: 'IOS',
+      clientVersion: '20.10.4',
+      deviceMake: 'Apple',
+      deviceModel: 'iPhone16,2',
+      hl: 'en',
+      gl: 'US',
+    },
+  },
+  {
+    name: 'ANDROID',
+    userAgent: 'com.google.android.youtube/20.10.38 (Linux; U; Android 15) gzip',
+    context: {
+      clientName: 'ANDROID',
+      clientVersion: '20.10.38',
+      androidSdkVersion: 35,
+      hl: 'en',
+      gl: 'US',
+    },
+  },
+];
+
+// Tier 1 (Fastest ~0.3s): Direct YouTube InnerTube IOS + ANDROID API caption extraction
+async function fetchCaptionsViaInnerTubeIOS(videoId) {
+  let lastError = 'No English captions returned by InnerTube';
+
+  for (const client of INNERTUBE_CLIENTS) {
+    try {
+      const playerRes = await fetch('https://www.youtube.com/youtubei/v1/player', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': client.userAgent,
+        },
+        body: JSON.stringify({
+          videoId,
+          context: { client: client.context },
+        }),
+        signal: AbortSignal.timeout(4500),
+      });
+
+      if (!playerRes.ok) {
+        lastError = `${client.name} HTTP ${playerRes.status}`;
+        continue;
+      }
+
+      const playerData = await playerRes.json();
+      const tracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+      if (tracks.length === 0) {
+        lastError = `${client.name} returned 0 tracks (${playerData?.playabilityStatus?.status || 'UNKNOWN'})`;
+        continue;
+      }
+
+      // Prefer human English captions first, then auto-generated ('asr'), then any en*
+      const englishTrack =
+        tracks.find((t) => /^en(-|$)/i.test(t.languageCode) && t.kind !== 'asr') ||
+        tracks.find((t) => /^en(-|$)/i.test(t.languageCode)) ||
+        tracks.find((t) => (t.languageCode || '').toLowerCase().startsWith('en'));
+
+      if (!englishTrack?.baseUrl) {
+        lastError = `${client.name}: no English caption track`;
+        continue;
+      }
+
+      const vttUrl = englishTrack.baseUrl.includes('fmt=')
+        ? englishTrack.baseUrl
+        : `${englishTrack.baseUrl}&fmt=vtt`;
+
+      const vttRes = await fetch(vttUrl, {
+        headers: { 'User-Agent': client.userAgent },
+        signal: AbortSignal.timeout(4500),
+      });
+      if (!vttRes.ok) {
+        lastError = `${client.name} VTT HTTP ${vttRes.status}`;
+        continue;
+      }
+
+      const vttContent = await vttRes.text();
+      if (!vttContent || !vttContent.trim()) {
+        lastError = `${client.name} returned empty VTT`;
+        continue;
+      }
+
+      const sentences = parseVttAndMergeSentences(vttContent);
+      if (!sentences || sentences.length === 0) {
+        lastError = `${client.name} parsed 0 spoken sentences`;
+        continue;
+      }
+
+      sentences.videoTitle =
+        (playerData?.videoDetails?.title || '').trim() || (await fetchVideoTitleOembed(videoId));
+      return sentences;
+    } catch (err) {
+      lastError = `${client.name}: ${err.message}`;
+    }
+  }
+
+  throw new Error(lastError);
+}
+
+// Cloud Fallback Extraction via Gemini native YouTube ingestion (fast LOW_RES English-only extraction; translation runs in parallel afterwards)
 async function extractTranscriptViaGeminiCloud(videoId) {
   if (!ai) {
     throw new Error('GEMINI_API_KEY is required for cloud YouTube caption extraction.');
@@ -379,19 +425,15 @@ async function extractTranscriptViaGeminiCloud(videoId) {
   const canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const titlePromise = fetchVideoTitleOembed(videoId);
 
-  const prompt = `You are a native Cambodian English-Khmer teacher in Phnom Penh.
-Extract spoken English sentences (up to 240s) from this YouTube video.
-Translate and explain everything in natural, everyday Cambodian Khmer (ដូចជនជាតិខ្មែរនិយាយ និងពន្យល់គ្នាប្រចាំថ្ងៃនៅកម្ពុជា — ងាយយល់ សាមញ្ញ មិនរឹងដូចម៉ាស៊ីនបកប្រែ).
-Return strict JSON:
-{
-  "sentences": [{"start_time": 0.0, "end_time": 3.5, "english_text": "...", "khmer_text": "Natural everyday Cambodian Khmer translation"}],
-  "vocabulary": [{"word": "...", "ipa": "/.../", "pos": "noun", "khmer": "Clear natural Cambodian Khmer definition (អត្ថន័យខ្មែរងាយយល់)", "example": "..."}],
-  "grammar": [{"stage": "Stage 1: The basics", "title": "...", "explanation_en": "...", "explanation_km": "Friendly, natural Cambodian Khmer explanation like a real teacher in Cambodia", "example_en": "...", "example_km": "Natural Cambodian Khmer translation"}]
-}
-Include 6 key vocabulary words and 3 grammar rules.`;
+  const prompt = `Extract spoken English sentences (0s to 240s) from this YouTube video as strict JSON:
+{"sentences":[{"start_time":0.0,"end_time":4.0,"english_text":"..."}]}
+Split cleanly by sentence and keep timestamps accurate.`;
 
-  const callSingleModel = async (modelName) => {
-    const config = { responseMimeType: 'application/json' };
+  const callSingleModel = async (modelName, timeoutMs) => {
+    const config = {
+      responseMimeType: 'application/json',
+      mediaResolution: 'MEDIA_RESOLUTION_LOW',
+    };
     if (!modelName.includes('lite')) {
       config.thinkingConfig = { thinkingBudget: 0 };
     }
@@ -400,13 +442,16 @@ Include 6 key vocabulary words and 3 grammar rules.`;
       ai.models.generateContent({
         model: modelName,
         contents: [
-          { fileData: { fileUri: canonicalUrl } },
+          {
+            fileData: { fileUri: canonicalUrl },
+            videoMetadata: { fps: 0.2, startOffset: '0s', endOffset: '240s' },
+          },
           { text: prompt },
         ],
         config,
       }),
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`${modelName} timeout`)), 20000)
+        setTimeout(() => reject(new Error(`${modelName} timeout`)), timeoutMs)
       ),
     ]);
 
@@ -416,14 +461,13 @@ Include 6 key vocabulary words and 3 grammar rules.`;
 
     const normalized = list
       .map((item, idx) => {
-        const start = parseTimestampToSeconds(item.start_time ?? idx * 4);
+        const start = parseTimestampToSeconds(item.start_time ?? item.s ?? idx * 4);
         const end = Math.max(
           start + 1.5,
-          parseTimestampToSeconds(item.end_time ?? start + 4)
+          parseTimestampToSeconds(item.end_time ?? item.e ?? start + 4)
         );
-        const text = String(item.english_text || item.text || '').trim();
-        const khmer = String(item.khmer_text || '').trim();
-        return { start_time: start, end_time: end, english_text: text, khmer_text: khmer };
+        const text = String(item.english_text || item.t || item.text || '').trim();
+        return { start_time: start, end_time: end, english_text: text };
       })
       .filter((s) => s.english_text && s.start_time <= MAX_VIDEO_DURATION_SECONDS)
       .slice(0, 100);
@@ -431,54 +475,38 @@ Include 6 key vocabulary words and 3 grammar rules.`;
     if (normalized.length === 0) {
       throw new Error(`${modelName} returned 0 sentences`);
     }
-    return { parsed, normalized, modelName };
+    return { normalized, modelName };
   };
 
-  // Try confirmed flash models with a total 42s cloud budget so HTTP requests never hang
-  const modelsToTry = [
-    'gemini-3.5-flash',
-    'gemini-3.6-flash',
-    'gemini-3.7-flash',
-    'gemini-3.8-flash',
-  ];
-
-  const cloudDeadline = Date.now() + 42000;
+  // Cap cloud fallback tightly at 22s so the UI never hangs forever if Gemini is overloaded
+  const modelsToTry = ['gemini-3.5-flash', 'gemini-3.5-flash-lite'];
+  const cloudDeadline = Date.now() + 22000;
   let winner = null;
   let lastErr = null;
   for (const modelName of modelsToTry) {
-    if (Date.now() > cloudDeadline) break;
+    const remainingMs = cloudDeadline - Date.now();
+    if (remainingMs <= 1500) break;
     try {
-      winner = await callSingleModel(modelName);
+      winner = await callSingleModel(modelName, Math.min(14000, remainingMs));
       if (winner) break;
     } catch (err) {
       lastErr = err;
       console.warn(`Gemini extraction (${modelName}) warning:`, err.message?.slice(0, 140));
-      await new Promise((r) => setTimeout(r, 300));
     }
   }
 
   if (!winner) {
     throw new Error(
-      `This video has no direct captions and Google Gemini is currently busy (${
-        lastErr?.status || lastErr?.message?.slice(0, 60) || '503'
-      }). Please try a video with English captions (CC) or paste the English text below.`
+      `Could not extract captions automatically (${
+        lastErr?.status || lastErr?.message?.slice(0, 50) || 'Gemini busy'
+      }). Please paste the English transcript in the box below (instant 1-second lesson creation).`
     );
   }
 
   const videoTitle = await titlePromise;
-  const { parsed, normalized, modelName } = winner;
+  const { normalized, modelName } = winner;
   console.log(`⚡ Fastest AI winner: ${modelName} (${normalized.length} sentences)`);
-
   normalized.videoTitle = videoTitle;
-  const hasKhmer = normalized.every((s) => s.khmer_text && s.khmer_text.length > 0);
-  if (hasKhmer && !Array.isArray(parsed)) {
-    normalized.precomputedAiData = {
-      title: videoTitle || parsed.title || `English Lesson (${videoId})`,
-      translations: normalized.map((s) => s.khmer_text),
-      vocabulary: Array.isArray(parsed.vocabulary) ? parsed.vocabulary : [],
-      grammar: Array.isArray(parsed.grammar) ? parsed.grammar : [],
-    };
-  }
   return normalized;
 }
 

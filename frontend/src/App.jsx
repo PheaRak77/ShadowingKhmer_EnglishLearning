@@ -57,6 +57,17 @@ async function parseJsonSafe(response) {
   }
 }
 
+function extractYouTubeVideoId(url) {
+  if (!url) return null;
+  const match = url
+    .trim()
+    .match(
+      /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?/\s]{11})/i
+    );
+  if (match?.[1]) return match[1];
+  return /^[a-zA-Z0-9_-]{11}$/.test(url.trim()) ? url.trim() : null;
+}
+
 // Helper: Select the most natural human-sounding English voice on the user's device
 let cachedNaturalVoice = null;
 
@@ -510,6 +521,31 @@ export default function App() {
     dispatch({ type: 'CREATE_LESSON_START' });
 
     try {
+      let prefetchedVtt;
+      let prefetchedTitle;
+      const ytId = extractYouTubeVideoId(videoUrlInput);
+
+      // On deployed Vercel frontend, try fast Edge caption relay (~0.3s) so Render never hits cloud IP blocks
+      if (ytId && API_BASE && !manualTranscriptInput.trim()) {
+        try {
+          const edgeRes = await fetch(`/api/yt-captions?videoId=${encodeURIComponent(ytId)}`, {
+            signal:
+              typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+                ? AbortSignal.timeout(4500)
+                : undefined,
+          });
+          if (edgeRes.ok) {
+            const edgeData = await parseJsonSafe(edgeRes);
+            if (edgeData?.vtt) {
+              prefetchedVtt = edgeData.vtt;
+              prefetchedTitle = edgeData.title || undefined;
+            }
+          }
+        } catch {
+          // Silently fall back to backend extraction pipeline
+        }
+      }
+
       const res = await fetch(`${API_BASE}/api/lessons/create`, {
         method: 'POST',
         headers: {
@@ -519,6 +555,8 @@ export default function App() {
         body: JSON.stringify({
           videoUrl: videoUrlInput.trim(),
           manualTranscript: manualTranscriptInput.trim() || undefined,
+          prefetchedVtt,
+          prefetchedTitle,
         }),
       });
 
