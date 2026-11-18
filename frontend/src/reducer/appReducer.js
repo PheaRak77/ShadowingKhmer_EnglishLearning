@@ -193,8 +193,6 @@ export const initialState = {
   allSavedVocabulary: [],
   grammarPoints: DEMO_LESSON_DATA.grammar_points,
   videoUrlInput: '',
-  manualTranscriptInput: '',
-  showManualTranscript: false,
   creatingLesson: false,
   createProgress: 0,
   loadingLesson: false,
@@ -577,19 +575,6 @@ export function appReducer(state, action) {
         videoUrlInput: action.payload,
       };
 
-    case 'SET_MANUAL_TRANSCRIPT':
-      return {
-        ...state,
-        manualTranscriptInput: action.payload,
-      };
-
-    case 'TOGGLE_MANUAL_TRANSCRIPT':
-      return {
-        ...state,
-        showManualTranscript:
-          typeof action.payload === 'boolean' ? action.payload : !state.showManualTranscript,
-      };
-
     case 'CREATE_LESSON_START':
       return {
         ...state,
@@ -619,8 +604,6 @@ export function appReducer(state, action) {
         creatingLesson: false,
         createProgress: 100,
         videoUrlInput: '',
-        manualTranscriptInput: '',
-        showManualTranscript: false,
         currentLesson: lesson,
         sentences,
         vocabulary,
