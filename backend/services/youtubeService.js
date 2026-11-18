@@ -583,7 +583,11 @@ async function fetchTranscriptViaSupadata(videoId) {
       .map((seg) => {
         const startSec = Number(seg.offset || 0) / 1000;
         const durSec = Math.max(0.8, Number(seg.duration || 2500) / 1000);
-        const cleanText = String(seg.text).replace(/\r?\n/g, ' ').trim();
+        const cleanText = String(seg.text)
+          .replace(/^(?:>>|&gt;&gt;)+\s*/gi, '')
+          .replace(/\s*>>+\s*/g, ' ')
+          .replace(/\r?\n/g, ' ')
+          .trim();
         return `${formatVttTime(startSec)} --> ${formatVttTime(startSec + durSec)}\n${cleanText}\n`;
       }),
   ].join('\n');
