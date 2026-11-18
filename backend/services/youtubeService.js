@@ -178,13 +178,42 @@ export function parseVttAndMergeSentences(vttContent) {
     }
   }
 
-  // Merge cues and split cleanly on sentence boundaries (., ?, !)
+  // Merge cues and split cleanly on sentence boundaries (., ?, !) or natural 14-word / pause breaks
   const mergedSentences = [];
   let bufferText = '';
   let bufferStart = null;
   let bufferEnd = null;
+  let prevCueEnd = null;
+
+  const flushBufferSegment = (text, startTime, endTime) => {
+    let formatted = text.replace(/\s+/g, ' ').trim();
+    if (!formatted) return;
+    if (!/[.?!]["']?$/.test(formatted)) {
+      formatted += '.';
+    }
+    formatted = formatted.charAt(0).toUpperCase() + formatted.slice(1);
+    mergedSentences.push({
+      start_time: Number(startTime.toFixed(2)),
+      end_time: Number(Math.max(startTime + 0.8, endTime).toFixed(2)),
+      english_text: formatted,
+    });
+  };
 
   for (const cue of deduplicatedCues) {
+    // Split on noticeable speech pauses when unpunctuated buffer already has enough words
+    if (
+      bufferText &&
+      prevCueEnd !== null &&
+      cue.start - prevCueEnd >= 1.2 &&
+      bufferText.trim().split(/\s+/).filter(Boolean).length >= 5
+    ) {
+      flushBufferSegment(bufferText, bufferStart ?? prevCueEnd, bufferEnd ?? prevCueEnd);
+      bufferText = '';
+      bufferStart = null;
+      bufferEnd = null;
+    }
+    prevCueEnd = cue.end;
+
     if (bufferStart === null) {
       bufferStart = cue.start;
     }
@@ -194,7 +223,7 @@ export function parseVttAndMergeSentences(vttContent) {
     if (bufferText) {
       const currentWords = bufferText.split(' ');
       const cueWords = textToAppend.split(' ');
-      const maxOverlap = Math.min(currentWords.length, cueWords.length, 6);
+      const maxOverlap = Math.min(currentWords.length, cueWords.length, 20);
       for (let overlap = maxOverlap; overlap >= 1; overlap--) {
         const suffix = currentWords.slice(-overlap).join(' ').toLowerCase();
         const prefix = cueWords.slice(0, overlap).join(' ').toLowerCase();
@@ -210,7 +239,9 @@ export function parseVttAndMergeSentences(vttContent) {
     }
 
     const parts = bufferText.match(/[^.?!]+[.?!]+["']?|[^.?!]+$/g) || [bufferText];
-    if (parts.length > 1 || /[.?!]["']?$/.test(bufferText.trim())) {
+    const bufferWords = bufferText.trim().split(/\s+/).filter(Boolean).length;
+
+    if (parts.length > 1 || /[.?!]["']?$/.test(bufferText.trim()) || bufferWords >= 14) {
       const totalChars = Math.max(1, bufferText.length);
       const totalDuration = Math.max(0.5, bufferEnd - bufferStart);
       let runningStart = bufferStart;
@@ -223,22 +254,12 @@ export function parseVttAndMergeSentences(vttContent) {
         const isComplete = /[.?!]["']?$/.test(part);
         const wordCount = part.split(/\s+/).filter(Boolean).length;
 
-        if (isComplete || wordCount >= 18) {
+        if (isComplete || wordCount >= 14) {
           const share = part.length / totalChars;
           const segEnd = Number(
             Math.min(bufferEnd, runningStart + Math.max(0.8, totalDuration * share)).toFixed(2)
           );
-          let formatted = part.replace(/\s+/g, ' ').trim();
-          if (!/[.?!]["']?$/.test(formatted)) {
-            formatted += '.';
-          }
-          formatted = formatted.charAt(0).toUpperCase() + formatted.slice(1);
-
-          mergedSentences.push({
-            start_time: Number(runningStart.toFixed(2)),
-            end_time: segEnd,
-            english_text: formatted,
-          });
+          flushBufferSegment(part, runningStart, segEnd);
           runningStart = segEnd;
         } else {
           leftover = part;
@@ -257,16 +278,7 @@ export function parseVttAndMergeSentences(vttContent) {
   }
 
   if (bufferText.trim()) {
-    let formattedText = bufferText.replace(/\s+/g, ' ').trim();
-    if (!/[.?!]["']?$/.test(formattedText)) {
-      formattedText += '.';
-    }
-    formattedText = formattedText.charAt(0).toUpperCase() + formattedText.slice(1);
-    mergedSentences.push({
-      start_time: Number((bufferStart ?? 0).toFixed(2)),
-      end_time: Number((bufferEnd ?? (bufferStart ?? 0) + 3).toFixed(2)),
-      english_text: formattedText,
-    });
+    flushBufferSegment(bufferText, bufferStart ?? 0, bufferEnd ?? (bufferStart ?? 0) + 3);
   }
 
   return mergedSentences.filter((s) => s.start_time <= MAX_VIDEO_DURATION_SECONDS).slice(0, 100);
@@ -287,7 +299,78 @@ async function fetchVideoTitleOembed(videoId) {
   }
 }
 
-// Cloud Extraction + Auto-Translation in ONE SINGLE Gemini call using parallel race for maximum speed
+// Tier 1 (Fastest ~0.3s, works on Cloud & Local): Direct YouTube InnerTube IOS API caption extraction
+async function fetchCaptionsViaInnerTubeIOS(videoId) {
+  const iosUserAgent =
+    'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)';
+  const playerRes = await fetch('https://www.youtube.com/youtubei/v1/player', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': iosUserAgent,
+    },
+    body: JSON.stringify({
+      videoId,
+      context: {
+        client: {
+          clientName: 'IOS',
+          clientVersion: '20.10.4',
+          deviceMake: 'Apple',
+          deviceModel: 'iPhone16,2',
+          hl: 'en',
+          gl: 'US',
+        },
+      },
+    }),
+    signal: AbortSignal.timeout(6000),
+  });
+
+  if (!playerRes.ok) {
+    throw new Error(`InnerTube status ${playerRes.status}`);
+  }
+  const playerData = await playerRes.json();
+  const tracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+  if (tracks.length === 0) {
+    throw new Error('No English captions returned by InnerTube');
+  }
+
+  // Prefer human English captions first, then auto-generated ('asr'), then any en*
+  const englishTrack =
+    tracks.find((t) => /^en(-|$)/i.test(t.languageCode) && t.kind !== 'asr') ||
+    tracks.find((t) => /^en(-|$)/i.test(t.languageCode)) ||
+    tracks.find((t) => (t.languageCode || '').toLowerCase().startsWith('en'));
+
+  if (!englishTrack?.baseUrl) {
+    throw new Error('Video has no English caption track');
+  }
+
+  const vttUrl = englishTrack.baseUrl.includes('fmt=')
+    ? englishTrack.baseUrl
+    : `${englishTrack.baseUrl}&fmt=vtt`;
+
+  const vttRes = await fetch(vttUrl, {
+    headers: { 'User-Agent': iosUserAgent },
+    signal: AbortSignal.timeout(6000),
+  });
+  if (!vttRes.ok) {
+    throw new Error(`Caption download failed (${vttRes.status})`);
+  }
+  const vttContent = await vttRes.text();
+  if (!vttContent || !vttContent.trim()) {
+    throw new Error('Empty caption track returned');
+  }
+
+  const sentences = parseVttAndMergeSentences(vttContent);
+  if (!sentences || sentences.length === 0) {
+    throw new Error('Parsed 0 spoken sentences from VTT');
+  }
+
+  sentences.videoTitle =
+    (playerData?.videoDetails?.title || '').trim() || (await fetchVideoTitleOembed(videoId));
+  return sentences;
+}
+
+// Cloud Fallback Extraction via Gemini native YouTube ingestion (used only when no VTT captions exist)
 async function extractTranscriptViaGeminiCloud(videoId) {
   if (!ai) {
     throw new Error('GEMINI_API_KEY is required for cloud YouTube caption extraction.');
@@ -308,6 +391,11 @@ Return strict JSON:
 Include 6 key vocabulary words and 3 grammar rules.`;
 
   const callSingleModel = async (modelName) => {
+    const config = { responseMimeType: 'application/json' };
+    if (!modelName.includes('lite')) {
+      config.thinkingConfig = { thinkingBudget: 0 };
+    }
+
     const res = await Promise.race([
       ai.models.generateContent({
         model: modelName,
@@ -315,13 +403,10 @@ Include 6 key vocabulary words and 3 grammar rules.`;
           { fileData: { fileUri: canonicalUrl } },
           { text: prompt },
         ],
-        config: {
-          responseMimeType: 'application/json',
-          thinkingConfig: { thinkingBudget: 0 },
-        },
+        config,
       }),
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`${modelName} timeout`)), 28000)
+        setTimeout(() => reject(new Error(`${modelName} timeout`)), 20000)
       ),
     ]);
 
@@ -349,33 +434,34 @@ Include 6 key vocabulary words and 3 grammar rules.`;
     return { parsed, normalized, modelName };
   };
 
-  // Try Gemini models sequentially (avoids burning 3x Free-Tier RPM quota simultaneously with Promise.any)
+  // Try confirmed flash models with a total 42s cloud budget so HTTP requests never hang
   const modelsToTry = [
     'gemini-3.5-flash',
+    'gemini-3.6-flash',
     'gemini-3.7-flash',
     'gemini-3.8-flash',
-    'gemini-3.6-flash',
-    'gemini-3.5-flash-lite',
   ];
 
+  const cloudDeadline = Date.now() + 42000;
   let winner = null;
   let lastErr = null;
   for (const modelName of modelsToTry) {
+    if (Date.now() > cloudDeadline) break;
     try {
       winner = await callSingleModel(modelName);
       if (winner) break;
     } catch (err) {
       lastErr = err;
       console.warn(`Gemini extraction (${modelName}) warning:`, err.message?.slice(0, 140));
-      await new Promise((r) => setTimeout(r, 1200));
+      await new Promise((r) => setTimeout(r, 300));
     }
   }
 
   if (!winner) {
     throw new Error(
-      `Google Gemini is currently experiencing high demand (${
+      `This video has no direct captions and Google Gemini is currently busy (${
         lastErr?.status || lastErr?.message?.slice(0, 60) || '503'
-      }). Please wait 10 seconds and click Create Lesson again.`
+      }). Please try a video with English captions (CC) or paste the English text below.`
     );
   }
 
@@ -397,10 +483,23 @@ Include 6 key vocabulary words and 3 grammar rules.`;
 }
 
 export async function fetchYoutubeCaptionsWithYtDlp(videoUrl, videoId) {
-  // On Render cloud servers, YouTube blocks datacenter IPs from yt-dlp ("Sign in to confirm you're not a bot").
-  // Skip waiting on yt-dlp and use Gemini native YouTube ingestion directly for fast cloud extraction.
+  // Tier 1 (0.3s on Cloud & Local): Fast direct YouTube InnerTube IOS API
+  try {
+    const fastStart = Date.now();
+    const fastSentences = await fetchCaptionsViaInnerTubeIOS(videoId);
+    console.log(
+      `⚡ InnerTube IOS extracted ${fastSentences.length} sentences for ${videoId} in ${
+        Date.now() - fastStart
+      }ms`
+    );
+    return fastSentences;
+  } catch (innerTubeErr) {
+    console.warn(`InnerTube IOS skipped for ${videoId}:`, innerTubeErr.message);
+  }
+
+  // On Render cloud servers, yt-dlp hits YouTube bot checks; jump straight to Gemini video fallback
   if (process.env.RENDER === 'true') {
-    console.log(`☁️ Render cloud detected: using Gemini native YouTube extraction for ${videoId}...`);
+    console.log(`☁️ Render fallback: using Gemini native YouTube extraction for ${videoId}...`);
     return await extractTranscriptViaGeminiCloud(videoId);
   }
 

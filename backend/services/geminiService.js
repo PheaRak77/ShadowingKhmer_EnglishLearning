@@ -10,11 +10,20 @@ const ai = process.env.GEMINI_API_KEY
   : null;
 
 const FAST_GEMINI_MODELS = [
-  'gemini-3.5-flash',
-  'gemini-3.7-flash',
-  'gemini-3.8-flash',
   'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-3.5-flash',
+  'gemini-3.6-flash',
 ];
+
+function buildGeminiConfig(modelName) {
+  const config = { responseMimeType: 'application/json' };
+  // Lite models reject thinkingConfig with 400 INVALID_ARGUMENT
+  if (!modelName.includes('lite')) {
+    config.thinkingConfig = { thinkingBudget: 0 };
+  }
+  return config;
+}
 
 function safeParseJson(rawText) {
   if (!rawText || typeof rawText !== 'string') {
@@ -75,19 +84,18 @@ Return a strict JSON object: { "translations": ["...", "..."] } with EXACTLY ${e
 
 ${numbered}`;
 
+  const deadline = Date.now() + 12000;
   for (const modelName of FAST_GEMINI_MODELS) {
+    if (Date.now() > deadline) break;
     try {
       const response = await Promise.race([
         ai.models.generateContent({
           model: modelName,
           contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-            thinkingConfig: { thinkingBudget: 0 },
-          },
+          config: buildGeminiConfig(modelName),
         }),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Gemini translate timeout')), 15000)
+          setTimeout(() => reject(new Error('Gemini translate timeout')), 7000)
         ),
       ]);
       const rawText = typeof response.text === 'function' ? response.text() : response.text;
@@ -192,7 +200,7 @@ export async function translateTextsToKhmerFast(englishTexts) {
 }
 
 // Fast fallback vocabulary & grammar generator from the video's actual transcript sentences
-async function buildInstantVocabAndGrammar(sentences, videoTitle, videoId) {
+async function buildInstantVocabAndGrammar(sentences, videoTitle, videoId, existingKhmer = []) {
   const stopWords = new Set([
     'the', 'and', 'that', 'this', 'with', 'from', 'your', 'have', 'more', 'will',
     'what', 'when', 'where', 'which', 'their', 'there', 'been', 'were', 'they',
@@ -242,10 +250,17 @@ async function buildInstantVocabAndGrammar(sentences, videoTitle, videoId) {
     };
   });
 
-  const sample1 = sentences[0]?.english_text || 'This is an English shadowing lesson.';
-  const sample2 = sentences[Math.min(1, sentences.length - 1)]?.english_text || sample1;
-  const sample3 = sentences[Math.min(2, sentences.length - 1)]?.english_text || sample1;
-  const sampleKhmer = await translateTextsToKhmerFast([sample1, sample2, sample3]);
+  const idx1 = 0;
+  const idx2 = Math.min(1, sentences.length - 1);
+  const idx3 = Math.min(2, sentences.length - 1);
+  const sample1 = sentences[idx1]?.english_text || 'This is an English shadowing lesson.';
+  const sample2 = sentences[idx2]?.english_text || sample1;
+  const sample3 = sentences[idx3]?.english_text || sample1;
+  const sampleKhmer = [
+    existingKhmer[idx1] || '',
+    existingKhmer[idx2] || '',
+    existingKhmer[idx3] || '',
+  ];
 
   const grammar = [
     {
@@ -311,19 +326,19 @@ Return strict JSON with 6 vocabulary words and 3 grammar rules. Use natural, eve
   ]
 }`;
 
+  const deadline = Date.now() + 6000;
   for (const modelName of FAST_GEMINI_MODELS) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 400) break;
     try {
       const response = await Promise.race([
         ai.models.generateContent({
           model: modelName,
           contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-            thinkingConfig: { thinkingBudget: 0 },
-          },
+          config: buildGeminiConfig(modelName),
         }),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Gemini metadata timeout')), 9000)
+          setTimeout(() => reject(new Error('Gemini metadata timeout')), Math.min(4500, remainingMs))
         ),
       ]);
       const rawText = typeof response.text === 'function' ? response.text() : response.text;
@@ -352,7 +367,12 @@ export async function generateLessonWithGemini(sentences, videoId) {
     };
   }
 
-  const fallbackMeta = await buildInstantVocabAndGrammar(sentences, videoTitle, videoId);
+  const fallbackMeta = await buildInstantVocabAndGrammar(
+    sentences,
+    videoTitle,
+    videoId,
+    khmerTranslations
+  );
   return {
     title: fallbackMeta.title,
     translations: khmerTranslations,
