@@ -50,6 +50,8 @@ function safeParseJson(rawText) {
   }
 }
 
+let gtxCooldownUntil = 0;
+
 // Layer 1: Google Translate gtx endpoint (fast when not rate-limited)
 async function tryGoogleGtxChunk(chunk) {
   const joined = chunk.join('\n');
@@ -61,7 +63,7 @@ async function tryGoogleGtxChunk(chunk) {
       'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
     },
-    signal: AbortSignal.timeout(7000),
+    signal: AbortSignal.timeout(2800),
   });
   if (!res.ok) throw new Error('GTX status ' + res.status);
   const data = await res.json();
@@ -132,28 +134,35 @@ async function tryMyMemorySingle(text) {
 export async function translateTextsToKhmerFast(englishTexts) {
   if (!englishTexts || englishTexts.length === 0) return [];
 
-  // Layer 1: Try Google GTX in chunks of 12
-  const chunkSize = 12;
-  const chunks = [];
-  for (let i = 0; i < englishTexts.length; i += chunkSize) {
-    chunks.push(englishTexts.slice(i, i + chunkSize));
-  }
+  let merged = englishTexts.map(() => '');
+  let gtxSuccess = false;
 
-  let gtxSuccess = true;
-  const gtxResults = await Promise.all(
-    chunks.map(async (chunk) => {
-      try {
-        return await tryGoogleGtxChunk(chunk);
-      } catch {
-        gtxSuccess = false;
-        return chunk.map(() => '');
-      }
-    })
-  );
+  // Layer 1: Try Google GTX in chunks of 12 (skip briefly if recently blocked/timed out)
+  if (Date.now() > gtxCooldownUntil) {
+    const chunkSize = 12;
+    const chunks = [];
+    for (let i = 0; i < englishTexts.length; i += chunkSize) {
+      chunks.push(englishTexts.slice(i, i + chunkSize));
+    }
 
-  const merged = gtxResults.flat();
-  if (gtxSuccess && merged.every((t) => t && t.length > 0)) {
-    return merged;
+    gtxSuccess = true;
+    const gtxResults = await Promise.all(
+      chunks.map(async (chunk) => {
+        try {
+          return await tryGoogleGtxChunk(chunk);
+        } catch {
+          gtxSuccess = false;
+          return chunk.map(() => '');
+        }
+      })
+    );
+    if (!gtxSuccess) {
+      gtxCooldownUntil = Date.now() + 60000;
+    }
+    merged = gtxResults.flat();
+    if (gtxSuccess && merged.every((t) => t && t.length > 0)) {
+      return merged;
+    }
   }
 
   // Layer 2: Use Gemini AI for any missing translations (or all if GTX was blocked on Render)
@@ -326,7 +335,7 @@ Return strict JSON with 6 vocabulary words and 3 grammar rules. Use natural, eve
   ]
 }`;
 
-  const deadline = Date.now() + 6000;
+  const deadline = Date.now() + 4500;
   for (const modelName of FAST_GEMINI_MODELS) {
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 400) break;
@@ -338,7 +347,7 @@ Return strict JSON with 6 vocabulary words and 3 grammar rules. Use natural, eve
           config: buildGeminiConfig(modelName),
         }),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Gemini metadata timeout')), Math.min(4500, remainingMs))
+          setTimeout(() => reject(new Error('Gemini metadata timeout')), Math.min(4000, remainingMs))
         ),
       ]);
       const rawText = typeof response.text === 'function' ? response.text() : response.text;
