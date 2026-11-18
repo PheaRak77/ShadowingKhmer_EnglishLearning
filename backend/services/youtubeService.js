@@ -497,9 +497,13 @@ Split cleanly by sentence and keep timestamps accurate.`;
 
   if (!winner) {
     throw new Error(
-      `Could not extract captions automatically (${
-        lastErr?.status || lastErr?.message?.slice(0, 50) || 'Gemini busy'
-      }). Please paste the English transcript in the box below (instant 1-second lesson creation).`
+      process.env.SUPADATA_API_KEY
+        ? `Could not extract captions automatically (${
+            lastErr?.status || lastErr?.message?.slice(0, 50) || 'Gemini busy'
+          }). Please ensure the YouTube video is public and has spoken English.`
+        : `YouTube blocked cloud extraction and Google Gemini is busy (${
+            lastErr?.status || lastErr?.message?.slice(0, 50) || '503'
+          }). Add SUPADATA_API_KEY on Render for reliable 1-second link-only extraction.`
     );
   }
 
@@ -510,8 +514,109 @@ Split cleanly by sentence and keep timestamps accurate.`;
   return normalized;
 }
 
+// Tier 0 (Recommended Cloud Production ~0.6s, never blocked by YouTube): Supadata Transcript API
+async function fetchTranscriptViaSupadata(videoId) {
+  const apiKey = (process.env.SUPADATA_API_KEY || '').trim();
+  if (!apiKey) return null;
+
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const titlePromise = fetchVideoTitleOembed(videoId);
+  const endpoint = `https://api.supadata.ai/v1/transcript?url=${encodeURIComponent(
+    videoUrl
+  )}&lang=en&mode=auto`;
+
+  let res = await fetch(endpoint, {
+    headers: { 'x-api-key': apiKey },
+    signal: AbortSignal.timeout(12000),
+  });
+
+  if (!res.ok && res.status !== 202) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Supadata HTTP ${res.status}: ${errText.slice(0, 120)}`);
+  }
+
+  let data = await res.json();
+
+  // If Supadata returns 202 Accepted (AI speech-to-text job), poll until completed (up to 22s)
+  if (res.status === 202 && data?.jobId) {
+    const pollDeadline = Date.now() + 22000;
+    while (Date.now() < pollDeadline) {
+      await new Promise((r) => setTimeout(r, 1500));
+      const jobRes = await fetch(
+        `https://api.supadata.ai/v1/transcript/${encodeURIComponent(data.jobId)}`,
+        {
+          headers: { 'x-api-key': apiKey },
+          signal: AbortSignal.timeout(6000),
+        }
+      );
+      if (!jobRes.ok) continue;
+      const jobData = await jobRes.json();
+      if (jobData?.status === 'completed' && Array.isArray(jobData.content)) {
+        data = jobData;
+        break;
+      }
+      if (jobData?.status === 'failed') {
+        throw new Error(jobData.error || 'Supadata transcription job failed');
+      }
+    }
+  }
+
+  const rawSegments = Array.isArray(data?.content) ? data.content : [];
+  if (rawSegments.length === 0) {
+    throw new Error('Supadata returned 0 transcript segments');
+  }
+
+  // Convert Supadata ms segments cleanly through our sentence-merging pipeline via synthetic VTT cues
+  const formatVttTime = (sec) => {
+    const clamped = Math.max(0, sec);
+    const hrs = String(Math.floor(clamped / 3600)).padStart(2, '0');
+    const mins = String(Math.floor((clamped % 3600) / 60)).padStart(2, '0');
+    const secs = (clamped % 60).toFixed(3).padStart(6, '0');
+    return `${hrs}:${mins}:${secs}`;
+  };
+
+  const syntheticVtt = [
+    'WEBVTT',
+    '',
+    ...rawSegments
+      .filter((seg) => seg && seg.text && Number(seg.offset || 0) / 1000 <= MAX_VIDEO_DURATION_SECONDS)
+      .map((seg) => {
+        const startSec = Number(seg.offset || 0) / 1000;
+        const durSec = Math.max(0.8, Number(seg.duration || 2500) / 1000);
+        const cleanText = String(seg.text).replace(/\r?\n/g, ' ').trim();
+        return `${formatVttTime(startSec)} --> ${formatVttTime(startSec + durSec)}\n${cleanText}\n`;
+      }),
+  ].join('\n');
+
+  const sentences = parseVttAndMergeSentences(syntheticVtt);
+  if (!sentences || sentences.length === 0) {
+    throw new Error('Supadata produced 0 valid English sentences');
+  }
+
+  sentences.videoTitle = (await titlePromise) || `English Lesson (${videoId})`;
+  return sentences;
+}
+
 export async function fetchYoutubeCaptionsWithYtDlp(videoUrl, videoId) {
-  // Tier 1 (0.3s on Cloud & Local): Fast direct YouTube InnerTube IOS API
+  // Tier 0 (Recommended Cloud Production ~0.6s): Supadata Transcript API when SUPADATA_API_KEY is configured
+  if (process.env.SUPADATA_API_KEY) {
+    try {
+      const supaStart = Date.now();
+      const supaSentences = await fetchTranscriptViaSupadata(videoId);
+      if (supaSentences && supaSentences.length > 0) {
+        console.log(
+          `⚡ Supadata extracted ${supaSentences.length} sentences for ${videoId} in ${
+            Date.now() - supaStart
+          }ms`
+        );
+        return supaSentences;
+      }
+    } catch (supaErr) {
+      console.warn(`Supadata skipped for ${videoId}:`, supaErr.message);
+    }
+  }
+
+  // Tier 1 (0.3s on non-blocked/local IPs): Direct YouTube InnerTube IOS/ANDROID API
   try {
     const fastStart = Date.now();
     const fastSentences = await fetchCaptionsViaInnerTubeIOS(videoId);

@@ -161,8 +161,6 @@ export default function App() {
     allSavedVocabulary,
     grammarPoints,
     videoUrlInput,
-    manualTranscriptInput,
-    showManualTranscript,
     creatingLesson,
     createProgress,
     loadingLesson,
@@ -526,7 +524,7 @@ export default function App() {
       const ytId = extractYouTubeVideoId(videoUrlInput);
 
       // On deployed Vercel frontend, try fast Edge caption relay (~0.3s) so Render never hits cloud IP blocks
-      if (ytId && API_BASE && !manualTranscriptInput.trim()) {
+      if (ytId && API_BASE) {
         try {
           const edgeRes = await fetch(`/api/yt-captions?videoId=${encodeURIComponent(ytId)}`, {
             signal:
@@ -554,7 +552,6 @@ export default function App() {
         },
         body: JSON.stringify({
           videoUrl: videoUrlInput.trim(),
-          manualTranscript: manualTranscriptInput.trim() || undefined,
           prefetchedVtt,
           prefetchedTitle,
         }),
@@ -1241,42 +1238,6 @@ export default function App() {
                   )}
                 </button>
               </form>
-
-              {!isGuest && !creatingLesson && (
-                <div className="mt-2.5 flex items-center justify-between text-xs">
-                  <button
-                    type="button"
-                    onClick={() => dispatch({ type: 'TOGGLE_MANUAL_TRANSCRIPT' })}
-                    className="text-slate-500 hover:text-[#2563EB] font-medium transition-colors cursor-pointer"
-                  >
-                    {showManualTranscript
-                      ? '− Hide transcript box'
-                      : '+ Or paste English transcript / subtitles manually (1s instant)'}
-                  </button>
-                </div>
-              )}
-
-              {!isGuest && showManualTranscript && !creatingLesson && (
-                <div className="mt-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/80 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <label className="text-xs font-bold text-slate-700">
-                      Paste English Transcript or VTT Subtitles (Optional Backup)
-                    </label>
-                    <span className="text-[11px] text-slate-400">
-                      Auto-translates to Khmer in ~1 second
-                    </span>
-                  </div>
-                  <textarea
-                    rows={3}
-                    placeholder="Paste English sentences or YouTube transcript here, then click Create Lesson..."
-                    value={manualTranscriptInput}
-                    onChange={(e) =>
-                      dispatch({ type: 'SET_MANUAL_TRANSCRIPT', payload: e.target.value })
-                    }
-                    className="w-full p-3 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#2563EB]"
-                  />
-                </div>
-              )}
 
               {/* Animated 3-Step Loading Percentage Card */}
               {creatingLesson && (

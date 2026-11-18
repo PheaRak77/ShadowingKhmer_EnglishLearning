@@ -651,7 +651,6 @@ export function appReducer(state, action) {
         ...state,
         creatingLesson: false,
         createProgress: 0,
-        showManualTranscript: true,
         notification: {
           type: 'error',
           message: action.payload,
