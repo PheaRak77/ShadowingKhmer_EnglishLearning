@@ -21,6 +21,7 @@ import {
   Flame,
   PlusCircle,
   Youtube,
+  X,
 } from 'lucide-react';
 import { useAppContext } from '../reducer/appReducer.js';
 import { GoogleIcon } from './AuthForm.jsx';
@@ -88,6 +89,18 @@ export default function AdminDashboard({ onOpenLesson }) {
   useEffect(() => {
     fetchAdminOverview();
   }, []);
+
+  useEffect(() => {
+    if (!editingLessonId && !editingUserLimitId) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        if (editingLessonId) dispatch({ type: 'ADMIN_OPEN_LESSON_EDIT', payload: null });
+        if (editingUserLimitId) dispatch({ type: 'ADMIN_OPEN_USER_LIMIT_EDIT', payload: null });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [editingLessonId, editingUserLimitId, dispatch]);
 
   const handleToggleUserRole = async (targetUser) => {
     const newRole = targetUser.role === 'admin' ? 'student' : 'admin';
@@ -720,220 +733,371 @@ export default function AdminDashboard({ onOpenLesson }) {
             <span className="text-xs font-semibold">Loading platform data...</span>
           </div>
         ) : activeTab === 'users' ? (
-          /* USERS MANAGEMENT TABLE */
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  <th className="py-3.5 px-6">User</th>
-                  <th className="py-3.5 px-4">Google OAuth</th>
-                  <th className="py-3.5 px-4">Role (Admin / Student)</th>
-                  <th className="py-3.5 px-4">YouTube Quota</th>
-                  <th className="py-3.5 px-4">Activity</th>
-                  <th className="py-3.5 px-4">Joined</th>
-                  <th className="py-3.5 px-6 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
-                {filteredUsers.map((u) => (
-                  <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3.5 px-6">
-                      <div className="flex items-center gap-3">
-                        {u.avatar_url ? (
-                          <img
-                            src={u.avatar_url}
-                            alt={u.username}
-                            className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0"
-                          />
-                        ) : (
-                          <div className="w-9 h-9 rounded-full bg-blue-100 text-[#2563EB] font-bold text-xs flex items-center justify-center shrink-0">
-                            {u.username?.slice(0, 2).toUpperCase()}
-                          </div>
-                        )}
-                        <div>
-                          <div className="font-bold text-slate-900">{u.username}</div>
-                          <div className="text-xs text-slate-500">{u.email}</div>
-                        </div>
-                      </div>
-                    </td>
-
-                    <td className="py-3.5 px-4">
-                      {u.google_id ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          <GoogleIcon className="w-3.5 h-3.5" />
-                          <span>Verified Gmail</span>
-                        </span>
+          /* USERS MANAGEMENT (MOBILE CARDS + DESKTOP TABLE) */
+          <>
+            {/* Mobile User Cards (< md) */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {filteredUsers.map((u) => (
+                <div key={u.id} className="p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      {u.avatar_url ? (
+                        <img
+                          src={u.avatar_url}
+                          alt={u.username}
+                          className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0"
+                        />
                       ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-500">
-                          Password Login
-                        </span>
+                        <div className="w-9 h-9 rounded-full bg-blue-100 text-[#2563EB] font-bold text-xs flex items-center justify-center shrink-0">
+                          {u.username?.slice(0, 2).toUpperCase()}
+                        </div>
                       )}
-                    </td>
+                      <div className="min-w-0">
+                        <div className="font-bold text-sm text-slate-900 truncate">{u.username}</div>
+                        <div className="text-xs text-slate-500 truncate">{u.email}</div>
+                      </div>
+                    </div>
 
-                    <td className="py-3.5 px-4">
+                    <span
+                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
+                        u.role === 'admin'
+                          ? 'bg-blue-100 text-[#2563EB]'
+                          : 'bg-purple-50 text-purple-700 border border-purple-200'
+                      }`}
+                    >
+                      {u.role === 'admin' ? <Crown className="w-3 h-3" /> : <GraduationCap className="w-3 h-3" />}
+                      <span>{u.role === 'admin' ? 'Admin' : 'Student'}</span>
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                    {u.google_id ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <GoogleIcon className="w-3 h-3" />
+                        <span>Verified Gmail</span>
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium">
+                        Password Login
+                      </span>
+                    )}
+
+                    {u.role === 'admin' ? (
+                      <span className="px-2 py-0.5 rounded-full font-bold bg-blue-50 text-[#2563EB]">
+                        Unlimited Quota
+                      </span>
+                    ) : (
                       <span
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
-                          u.role === 'admin'
-                            ? 'bg-blue-100 text-[#2563EB]'
-                            : 'bg-purple-50 text-purple-700 border border-purple-200'
+                        className={`px-2 py-0.5 rounded-full font-bold border ${
+                          (u.quota?.remaining ?? 1) > 0
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-amber-50 text-amber-800 border-amber-200'
                         }`}
                       >
-                        {u.role === 'admin' ? (
-                          <>
-                            <Crown className="w-3 h-3" />
-                            <span>Admin</span>
-                          </>
-                        ) : (
-                          <>
-                            <GraduationCap className="w-3.5 h-3.5" />
-                            <span>Student</span>
-                          </>
-                        )}
+                        {u.quota?.usedCount ?? 0}/{u.quota?.maxLessons ?? studentLimit.maxLessons} per{' '}
+                        {u.quota?.windowDays ?? studentLimit.windowDays}d
                       </span>
-                    </td>
+                    )}
 
-                    <td className="py-3.5 px-4">
-                      {u.role === 'admin' ? (
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-50 text-[#2563EB]">
-                          Unlimited
-                        </span>
-                      ) : editingUserLimitId === u.id ? (
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            placeholder={String(studentLimit.maxLessons)}
-                            value={userLimitForm.maxLessons}
-                            onChange={(e) =>
-                              dispatch({
-                                type: 'ADMIN_UPDATE_USER_LIMIT_FIELD',
-                                payload: { field: 'maxLessons', value: e.target.value },
-                              })
-                            }
-                            className="w-12 px-1.5 py-1 rounded-lg border border-slate-300 text-xs text-center"
-                            title="Videos allowed (0 = block)"
-                          />
-                          <span className="text-[11px] text-slate-400">/</span>
-                          <input
-                            type="number"
-                            min={1}
-                            max={365}
-                            placeholder={String(studentLimit.windowDays)}
-                            value={userLimitForm.windowDays}
-                            onChange={(e) =>
-                              dispatch({
-                                type: 'ADMIN_UPDATE_USER_LIMIT_FIELD',
-                                payload: { field: 'windowDays', value: e.target.value },
-                              })
-                            }
-                            className="w-12 px-1.5 py-1 rounded-lg border border-slate-300 text-xs text-center"
-                            title="Days window"
-                          />
-                          <span className="text-[11px] text-slate-400">d</span>
-                          <button
-                            type="button"
-                            onClick={() => handleSaveUserCustomLimit(u.id, false)}
-                            className="px-2 py-1 rounded-lg bg-[#2563EB] text-white text-[11px] font-bold cursor-pointer"
-                          >
-                            Save
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSaveUserCustomLimit(u.id, true)}
-                            className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600 text-[11px] font-semibold cursor-pointer"
-                            title="Revert to global student default"
-                          >
-                            Default
-                          </button>
+                    <span className="text-slate-500 ml-auto">
+                      {u.lesson_count} lessons · {u.vocab_count} words
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    {u.role !== 'admin' && (
+                      <button
+                        type="button"
+                        onClick={() => dispatch({ type: 'ADMIN_OPEN_USER_LIMIT_EDIT', payload: u })}
+                        className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                      >
+                        Edit Quota
+                      </button>
+                    )}
+                    {u.role !== 'admin' && (u.quota?.usedCount ?? 0) > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleResetUserQuota(u)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-blue-200 bg-blue-50 text-[#2563EB] text-xs font-semibold cursor-pointer"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Reset</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleToggleUserRole(u)}
+                      className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                    >
+                      Set {u.role === 'admin' ? 'Student' : 'Admin'}
+                    </button>
+                    {u.id !== auth.user.id && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteUser(u.id, u.username)}
+                        className="ml-auto p-1.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 cursor-pointer"
+                        title="Delete user"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {filteredUsers.length === 0 && (
+                <div className="py-10 text-center text-xs text-slate-400">
+                  No matching users found.
+                </div>
+              )}
+            </div>
+
+            {/* Desktop User Table (>= md) */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    <th className="py-3.5 px-6">User</th>
+                    <th className="py-3.5 px-4">Google OAuth</th>
+                    <th className="py-3.5 px-4">Role (Admin / Student)</th>
+                    <th className="py-3.5 px-4">YouTube Quota</th>
+                    <th className="py-3.5 px-4">Activity</th>
+                    <th className="py-3.5 px-4">Joined</th>
+                    <th className="py-3.5 px-6 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {filteredUsers.map((u) => (
+                    <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-3.5 px-6">
+                        <div className="flex items-center gap-3">
+                          {u.avatar_url ? (
+                            <img
+                              src={u.avatar_url}
+                              alt={u.username}
+                              className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0"
+                            />
+                          ) : (
+                            <div className="w-9 h-9 rounded-full bg-blue-100 text-[#2563EB] font-bold text-xs flex items-center justify-center shrink-0">
+                              {u.username?.slice(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                          <div>
+                            <div className="font-bold text-slate-900">{u.username}</div>
+                            <div className="text-xs text-slate-500">{u.email}</div>
+                          </div>
                         </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${
-                              (u.quota?.remaining ?? 1) > 0
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : 'bg-amber-50 text-amber-800 border-amber-200'
-                            }`}
-                          >
-                            {u.quota?.usedCount ?? 0}/{u.quota?.maxLessons ?? studentLimit.maxLessons} per{' '}
-                            {u.quota?.windowDays ?? studentLimit.windowDays}d
-                            {u.quota?.isCustom && ' (Custom)'}
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        {u.google_id ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <GoogleIcon className="w-3.5 h-3.5" />
+                            <span>Verified Gmail</span>
                           </span>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              dispatch({ type: 'ADMIN_OPEN_USER_LIMIT_EDIT', payload: u })
-                            }
-                            className="px-2 py-0.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-[11px] font-semibold text-slate-600 cursor-pointer"
-                            title="Set custom YouTube limit for this student"
-                          >
-                            Set
-                          </button>
-                          {(u.quota?.usedCount ?? 0) > 0 && (
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-500">
+                            Password Login
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+                            u.role === 'admin'
+                              ? 'bg-blue-100 text-[#2563EB]'
+                              : 'bg-purple-50 text-purple-700 border border-purple-200'
+                          }`}
+                        >
+                          {u.role === 'admin' ? (
+                            <>
+                              <Crown className="w-3 h-3" />
+                              <span>Admin</span>
+                            </>
+                          ) : (
+                            <>
+                              <GraduationCap className="w-3.5 h-3.5" />
+                              <span>Student</span>
+                            </>
+                          )}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        {u.role === 'admin' ? (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-50 text-[#2563EB]">
+                            Unlimited
+                          </span>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+                                (u.quota?.remaining ?? 1) > 0
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : 'bg-amber-50 text-amber-800 border-amber-200'
+                              }`}
+                            >
+                              {u.quota?.usedCount ?? 0}/{u.quota?.maxLessons ?? studentLimit.maxLessons} per{' '}
+                              {u.quota?.windowDays ?? studentLimit.windowDays}d
+                              {u.quota?.isCustom && ' (Custom)'}
+                            </span>
                             <button
                               type="button"
-                              onClick={() => handleResetUserQuota(u)}
-                              className="p-1 rounded-lg text-slate-400 hover:text-[#2563EB] hover:bg-blue-50 cursor-pointer"
-                              title="Reset student cooldown now"
+                              onClick={() =>
+                                dispatch({ type: 'ADMIN_OPEN_USER_LIMIT_EDIT', payload: u })
+                              }
+                              className="px-2 py-0.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-[11px] font-semibold text-slate-600 cursor-pointer"
+                              title="Set custom YouTube limit for this student"
                             >
-                              <RotateCcw className="w-3.5 h-3.5" />
+                              Edit
+                            </button>
+                            {(u.quota?.usedCount ?? 0) > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => handleResetUserQuota(u)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-[#2563EB] hover:bg-blue-50 cursor-pointer"
+                                title="Reset student cooldown now"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+
+                      <td className="py-3.5 px-4 text-xs text-slate-600">
+                        <span className="font-semibold text-slate-800">{u.lesson_count}</span>{' '}
+                        lessons •{' '}
+                        <span className="font-semibold text-slate-800">{u.vocab_count}</span> words
+                      </td>
+
+                      <td className="py-3.5 px-4 text-xs text-slate-500">
+                        {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}
+                      </td>
+
+                      <td className="py-3.5 px-6 text-right">
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleUserRole(u)}
+                            className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-100 text-xs font-semibold text-slate-700 cursor-pointer"
+                            title="Switch role between Admin and Student"
+                          >
+                            Set as {u.role === 'admin' ? 'Student' : 'Admin'}
+                          </button>
+
+                          {u.id !== auth.user.id && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteUser(u.id, u.username)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                              title="Delete user"
+                            >
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           )}
                         </div>
-                      )}
-                    </td>
+                      </td>
+                    </tr>
+                  ))}
 
-                    <td className="py-3.5 px-4 text-xs text-slate-600">
-                      <span className="font-semibold text-slate-800">{u.lesson_count}</span>{' '}
-                      lessons •{' '}
-                      <span className="font-semibold text-slate-800">{u.vocab_count}</span> words
-                    </td>
-
-                    <td className="py-3.5 px-4 text-xs text-slate-500">
-                      {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}
-                    </td>
-
-                    <td className="py-3.5 px-6 text-right">
-                      <div className="inline-flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleUserRole(u)}
-                          className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-100 text-xs font-semibold text-slate-700 cursor-pointer"
-                          title="Switch role between Admin and Student"
-                        >
-                          Set as {u.role === 'admin' ? 'Student' : 'Admin'}
-                        </button>
-
-                        {u.id !== auth.user.id && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteUser(u.id, u.username)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
-                            title="Delete user"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-
-                {filteredUsers.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="py-8 text-center text-xs text-slate-400">
-                      No matching users found.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                  {filteredUsers.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-xs text-slate-400">
+                        No matching users found.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
         ) : (
-          /* LESSONS MANAGEMENT TABLE */
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          /* LESSONS MANAGEMENT (MOBILE CARDS + DESKTOP TABLE) */
+          <>
+            {/* Mobile Lesson Cards (< md) */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {filteredLessons.map((l) => (
+                <div key={l.id} className="p-4 space-y-2.5">
+                  <div className="flex items-start gap-3">
+                    <img
+                      src={`https://i.ytimg.com/vi/${l.video_id}/hqdefault.jpg`}
+                      alt={l.title}
+                      loading="lazy"
+                      className="w-20 h-12 rounded-xl object-cover border border-slate-200 shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-sm text-slate-900 line-clamp-2 leading-snug">
+                        {l.title}
+                      </div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        By {l.creator_name || 'Unknown'} · {l.sentence_count} sents · {l.view_count || 0} views
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-extrabold">
+                      {l.cefr_level || 'A2'}
+                    </span>
+                    {l.creator_role === 'admin' ? (
+                      <button
+                        type="button"
+                        onClick={() => handleToggleLessonPublic(l)}
+                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border cursor-pointer ${
+                          l.is_public
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-slate-100 text-slate-500 border-slate-200'
+                        }`}
+                      >
+                        {l.is_public ? <Globe className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                        <span>{l.is_public ? 'Published' : 'Hidden'}</span>
+                      </button>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] bg-slate-100 text-slate-500">
+                        Student Personal
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => onOpenLesson(l.id, l.title)}
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl bg-blue-50 text-[#2563EB] text-xs font-bold cursor-pointer"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Open</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => dispatch({ type: 'ADMIN_OPEN_LESSON_EDIT', payload: l })}
+                      className="inline-flex items-center gap-1 py-1.5 px-3 rounded-xl border border-slate-200 text-slate-700 text-xs font-semibold cursor-pointer"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span>Edit</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteLesson(l.id, l.title)}
+                      className="p-1.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 cursor-pointer"
+                      title="Delete lesson"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {filteredLessons.length === 0 && (
+                <div className="py-10 text-center text-xs text-slate-400">
+                  No lessons found.
+                </div>
+              )}
+            </div>
+
+            {/* Desktop Lessons Table (>= md) */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                     <th className="py-3.5 px-6">Lesson Video</th>
@@ -951,24 +1115,11 @@ export default function AdminDashboard({ onOpenLesson }) {
                           <img
                             src={`https://i.ytimg.com/vi/${l.video_id}/hqdefault.jpg`}
                             alt={l.title}
+                            loading="lazy"
                             className="w-16 h-10 rounded-lg object-cover border border-slate-200 shrink-0"
                           />
                           <div className="min-w-0">
-                            {editingLessonId === l.id ? (
-                              <input
-                                type="text"
-                                value={lessonEditForm.title}
-                                onChange={(e) =>
-                                  dispatch({
-                                    type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
-                                    payload: { field: 'title', value: e.target.value },
-                                  })
-                                }
-                                className="w-60 px-2 py-1 rounded-lg border border-blue-300 text-xs font-bold text-slate-900"
-                              />
-                            ) : (
-                              <div className="font-bold text-slate-900 line-clamp-1">{l.title}</div>
-                            )}
+                            <div className="font-bold text-slate-900 line-clamp-1">{l.title}</div>
                             <div className="text-[11px] text-slate-400">
                               By {l.creator_name || 'Unknown'} • ID: {l.video_id}
                             </div>
@@ -977,75 +1128,24 @@ export default function AdminDashboard({ onOpenLesson }) {
                       </td>
 
                       <td className="py-3.5 px-4">
-                        {editingLessonId === l.id ? (
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <select
-                              value={lessonEditForm.cefrLevel}
-                              onChange={(e) =>
-                                dispatch({
-                                  type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
-                                  payload: { field: 'cefrLevel', value: e.target.value },
-                                })
-                              }
-                              className="px-2 py-1 rounded-lg border border-slate-300 text-xs font-bold"
-                            >
-                              {['A1', 'A2', 'B1', 'B2', 'C1'].map((lvl) => (
-                                <option key={lvl} value={lvl}>
-                                  {lvl}
-                                </option>
-                              ))}
-                            </select>
-                            <input
-                              type="text"
-                              value={lessonEditForm.tags}
-                              onChange={(e) =>
-                                dispatch({
-                                  type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
-                                  payload: { field: 'tags', value: e.target.value },
-                                })
-                              }
-                              className="w-40 px-2 py-1 rounded-lg border border-slate-300 text-xs"
-                              placeholder="Tags..."
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleSaveLessonEdit(l.id)}
-                              className="px-2.5 py-1 rounded-lg bg-[#2563EB] text-white text-[11px] font-bold cursor-pointer"
-                            >
-                              Save
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                dispatch({ type: 'ADMIN_OPEN_LESSON_EDIT', payload: null })
-                              }
-                              className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600 text-[11px] font-semibold cursor-pointer"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="space-y-1">
-                            <div className="flex flex-wrap items-center gap-1">
-                              <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-extrabold">
-                                {l.cefr_level || 'A2'}
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-extrabold">
+                            {l.cefr_level || 'A2'}
+                          </span>
+                          {String(l.tags || 'Daily Conversation')
+                            .split(',')
+                            .map((t) => t.trim())
+                            .filter(Boolean)
+                            .slice(0, 2)
+                            .map((tag, i) => (
+                              <span
+                                key={i}
+                                className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[11px]"
+                              >
+                                {tag}
                               </span>
-                              {String(l.tags || 'Daily Conversation')
-                                .split(',')
-                                .map((t) => t.trim())
-                                .filter(Boolean)
-                                .slice(0, 2)
-                                .map((tag, i) => (
-                                  <span
-                                    key={i}
-                                    className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[11px]"
-                                  >
-                                    {tag}
-                                  </span>
-                                ))}
-                            </div>
-                          </div>
-                        )}
+                            ))}
+                        </div>
                       </td>
 
                       <td className="py-3.5 px-4">
@@ -1136,8 +1236,234 @@ export default function AdminDashboard({ onOpenLesson }) {
                 </tbody>
               </table>
             </div>
+          </>
         )}
       </div>
+
+      {/* Custom Branded Edit Lesson Modal (Admin Dashboard) */}
+      {editingLessonId && (
+        <div
+          className="fixed inset-0 z-[75] bg-slate-900/45 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => dispatch({ type: 'ADMIN_OPEN_LESSON_EDIT', payload: null })}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSaveLessonEdit(editingLessonId);
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-md bg-white/98 backdrop-blur-xl rounded-3xl border border-slate-200/90 shadow-2xl p-6 space-y-4 animate-fade-in-up"
+          >
+            <button
+              type="button"
+              onClick={() => dispatch({ type: 'ADMIN_OPEN_LESSON_EDIT', payload: null })}
+              className="absolute top-4 right-4 p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+              aria-label="Close edit modal"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-200 text-[#2563EB] flex items-center justify-center shrink-0">
+                <Pencil className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">Edit Video Lesson</h3>
+                <p className="text-xs text-slate-500 khmer-text">
+                  កែសម្រួលចំណងជើង កម្រិត (CEFR) និងស្លាកមេរៀន
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3 pt-1">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                  Lesson Title
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={lessonEditForm.title}
+                  onChange={(e) =>
+                    dispatch({
+                      type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
+                      payload: { field: 'title', value: e.target.value },
+                    })
+                  }
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white focus:border-[#2563EB] focus:ring-2 focus:ring-blue-600/15 focus:outline-none text-xs sm:text-sm font-semibold text-slate-900"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                    CEFR Level
+                  </label>
+                  <select
+                    value={lessonEditForm.cefrLevel}
+                    onChange={(e) =>
+                      dispatch({
+                        type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
+                        payload: { field: 'cefrLevel', value: e.target.value },
+                      })
+                    }
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white focus:border-[#2563EB] focus:outline-none text-xs sm:text-sm font-bold text-slate-800"
+                  >
+                    {['A1', 'A2', 'B1', 'B2', 'C1'].map((lvl) => (
+                      <option key={lvl} value={lvl}>
+                        Level {lvl}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                    Tags
+                  </label>
+                  <input
+                    type="text"
+                    value={lessonEditForm.tags}
+                    onChange={(e) =>
+                      dispatch({
+                        type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
+                        payload: { field: 'tags', value: e.target.value },
+                      })
+                    }
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white focus:border-[#2563EB] focus:outline-none text-xs sm:text-sm text-slate-800"
+                    placeholder="Daily Conversation, Story"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => dispatch({ type: 'ADMIN_OPEN_LESSON_EDIT', payload: null })}
+                className="py-2.5 px-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs sm:text-sm font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="py-2.5 px-4 rounded-xl bg-[#2563EB] hover:bg-blue-700 text-white text-xs sm:text-sm font-bold shadow-sm shadow-blue-600/20 cursor-pointer"
+              >
+                Save Changes
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Custom Branded Edit Student Quota Modal */}
+      {editingUserLimitId && (() => {
+        const targetStudent = users.find((u) => u.id === editingUserLimitId);
+        return (
+          <div
+            className="fixed inset-0 z-[75] bg-slate-900/45 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+            onClick={() => dispatch({ type: 'ADMIN_OPEN_USER_LIMIT_EDIT', payload: null })}
+          >
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSaveUserCustomLimit(editingUserLimitId, false);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-md bg-white/98 backdrop-blur-xl rounded-3xl border border-slate-200/90 shadow-2xl p-6 space-y-4 animate-fade-in-up"
+            >
+              <button
+                type="button"
+                onClick={() => dispatch({ type: 'ADMIN_OPEN_USER_LIMIT_EDIT', payload: null })}
+                className="absolute top-4 right-4 p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+                aria-label="Close quota modal"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shrink-0">
+                  <SlidersHorizontal className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base font-extrabold text-slate-900">
+                    Student YouTube Link Limit
+                  </h3>
+                  <p className="text-xs text-slate-500 truncate">
+                    {targetStudent ? `${targetStudent.username} (${targetStudent.email})` : 'Custom quota'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                    Max Videos (0 = block)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    placeholder={String(studentLimit.maxLessons)}
+                    value={userLimitForm.maxLessons}
+                    onChange={(e) =>
+                      dispatch({
+                        type: 'ADMIN_UPDATE_USER_LIMIT_FIELD',
+                        payload: { field: 'maxLessons', value: e.target.value },
+                      })
+                    }
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white focus:border-[#2563EB] focus:outline-none text-sm font-bold text-slate-900 text-center"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                    Every X Days
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={365}
+                    placeholder={String(studentLimit.windowDays)}
+                    value={userLimitForm.windowDays}
+                    onChange={(e) =>
+                      dispatch({
+                        type: 'ADMIN_UPDATE_USER_LIMIT_FIELD',
+                        payload: { field: 'windowDays', value: e.target.value },
+                      })
+                    }
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white focus:border-[#2563EB] focus:outline-none text-sm font-bold text-slate-900 text-center"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => handleSaveUserCustomLimit(editingUserLimitId, true)}
+                  className="px-3 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold cursor-pointer"
+                >
+                  Use Global Default
+                </button>
+                <div className="flex-1 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => dispatch({ type: 'ADMIN_OPEN_USER_LIMIT_EDIT', payload: null })}
+                    className="px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2.5 rounded-xl bg-[#2563EB] hover:bg-blue-700 text-white text-xs font-bold shadow-sm cursor-pointer"
+                  >
+                    Save Limit
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        );
+      })()}
     </div>
   );
 }
