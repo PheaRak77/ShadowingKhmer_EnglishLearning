@@ -69,6 +69,12 @@ export default function AuthForm({ isModal = false, onClose }) {
     issuedCode: '',
     successMessage: null,
   };
+  const registerVerify = state.auth.registerVerify || {
+    isVerifyStep: false,
+    email: '',
+    code: '',
+    infoMessage: null,
+  };
   const { googleClientId } = state;
 
   // Fetch GOOGLE_CLIENT_ID configured in backend/.env
@@ -90,33 +96,101 @@ export default function AuthForm({ isModal = false, onClose }) {
     });
   };
 
-  // Email & Password Login / Student Registration
+  // Email & Password Login OR Step 1 of Student Registration (Send Real Email OTP)
   const handleSubmit = async (e) => {
     e.preventDefault();
     dispatch({ type: 'AUTH_START' });
 
-    const endpoint = isLoginMode ? `${API_BASE}/api/auth/login` : `${API_BASE}/api/auth/register`;
-    const bodyPayload = isLoginMode
-      ? { email: form.email, password: form.password }
-      : {
+    if (isLoginMode) {
+      try {
+        const response = await fetch(`${API_BASE}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: form.email, password: form.password }),
+        });
+
+        const data = await parseJsonSafe(response);
+
+        if (!response.ok) {
+          dispatch({
+            type: 'AUTH_FAILURE',
+            payload: data.error || 'Authentication failed. Please check your credentials.',
+          });
+          return;
+        }
+
+        localStorage.setItem('sk_user', JSON.stringify(data.user));
+        localStorage.setItem('sk_token', data.token);
+
+        dispatch({
+          type: 'AUTH_SUCCESS',
+          payload: { user: data.user, token: data.token },
+        });
+      } catch {
+        dispatch({
+          type: 'AUTH_FAILURE',
+          payload: 'Unable to reach the server. Please try again in a few seconds.',
+        });
+      }
+      return;
+    }
+
+    // Registration Step 1: Validate real email + send 6-digit verification code to inbox
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/register/send-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           username: form.username,
           email: form.email,
           password: form.password,
-        };
-
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bodyPayload),
+        }),
       });
 
       const data = await parseJsonSafe(response);
-
       if (!response.ok) {
         dispatch({
           type: 'AUTH_FAILURE',
-          payload: data.error || 'Authentication failed. Please check your credentials.',
+          payload: data.error || 'Could not send verification code to your email.',
+        });
+        return;
+      }
+
+      dispatch({
+        type: 'REGISTER_CODE_SENT',
+        payload: {
+          email: data.email || form.email,
+          message: data.message,
+        },
+      });
+    } catch {
+      dispatch({
+        type: 'AUTH_FAILURE',
+        payload: 'Unable to reach the server to verify your email. Please try again.',
+      });
+    }
+  };
+
+  // Registration Step 2: Verify 6-digit OTP sent to real email & activate account
+  const handleVerifyRegistrationCode = async (e) => {
+    e.preventDefault();
+    dispatch({ type: 'AUTH_START' });
+
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/register/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: registerVerify.email,
+          code: registerVerify.code,
+        }),
+      });
+
+      const data = await parseJsonSafe(response);
+      if (!response.ok) {
+        dispatch({
+          type: 'AUTH_FAILURE',
+          payload: data.error || 'Invalid or expired verification code.',
         });
         return;
       }
@@ -128,10 +202,46 @@ export default function AuthForm({ isModal = false, onClose }) {
         type: 'AUTH_SUCCESS',
         payload: { user: data.user, token: data.token },
       });
-    } catch (err) {
+    } catch {
       dispatch({
         type: 'AUTH_FAILURE',
-        payload: 'Unable to reach the server. Please verify the backend is running on port 5000.',
+        payload: 'Network error while verifying your email code.',
+      });
+    }
+  };
+
+  const handleResendRegistrationCode = async () => {
+    if (loading) return;
+    dispatch({ type: 'AUTH_START' });
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/register/send-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: form.username,
+          email: registerVerify.email || form.email,
+          password: form.password,
+        }),
+      });
+      const data = await parseJsonSafe(response);
+      if (!response.ok) {
+        dispatch({
+          type: 'AUTH_FAILURE',
+          payload: data.error || 'Failed to resend code.',
+        });
+        return;
+      }
+      dispatch({
+        type: 'REGISTER_CODE_SENT',
+        payload: {
+          email: data.email || registerVerify.email,
+          message: 'A new 6-digit verification code has been sent to your email.',
+        },
+      });
+    } catch {
+      dispatch({
+        type: 'AUTH_FAILURE',
+        payload: 'Network error while resending verification code.',
       });
     }
   };
@@ -473,6 +583,96 @@ export default function AuthForm({ isModal = false, onClose }) {
                 </form>
               )}
             </div>
+          ) : registerVerify.isVerifyStep ? (
+            <div className="space-y-5">
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'REGISTER_BACK_TO_FORM' })}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 cursor-pointer"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Change Email</span>
+                </button>
+              </div>
+
+              <div>
+                <div className="w-11 h-11 rounded-xl bg-blue-50 text-[#2563EB] flex items-center justify-center mb-3">
+                  <Mail className="w-5 h-5" />
+                </div>
+                <h2 className="text-lg font-extrabold text-slate-900">Verify Your Email</h2>
+                <p className="text-xs text-slate-500 mt-1 khmer-text">
+                  យើងបានផ្ញើលេខកូដ 6 ខ្ទង់ទៅកាន់{' '}
+                  <span className="font-bold text-slate-800">{registerVerify.email}</span>។
+                  សូមពិនិត្យប្រអប់សំបុត្រ (ឬ Spam) ដើម្បីបញ្ជាក់គណនីរបស់អ្នក។
+                </p>
+              </div>
+
+              {registerVerify.infoMessage && (
+                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{registerVerify.infoMessage}</span>
+                </div>
+              )}
+
+              {error && (
+                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs sm:text-sm font-medium">
+                  {error}
+                </div>
+              )}
+
+              <form onSubmit={handleVerifyRegistrationCode} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
+                    6-Digit Verification Code
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={6}
+                    inputMode="numeric"
+                    placeholder="123456"
+                    value={registerVerify.code}
+                    onChange={(e) =>
+                      dispatch({
+                        type: 'REGISTER_UPDATE_CODE',
+                        payload: e.target.value.replace(/\D/g, '').slice(0, 6),
+                      })
+                    }
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-center text-xl font-extrabold tracking-[0.4em] focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-[#2563EB]"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading || registerVerify.code.length < 6}
+                  className="w-full inline-flex items-center justify-center gap-2 py-3 px-5 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-sm shadow-sm transition-all cursor-pointer"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Verifying...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Verify &amp; Activate Account</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </form>
+
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={handleResendRegistrationCode}
+                  disabled={loading}
+                  className="text-xs font-semibold text-[#2563EB] hover:underline disabled:opacity-50 cursor-pointer"
+                >
+                  Didn&apos;t receive the code? Resend code
+                </button>
+              </div>
+            </div>
           ) : (
             <>
           {isModal && (
@@ -609,6 +809,12 @@ export default function AuthForm({ isModal = false, onClose }) {
               </div>
             </div>
 
+            {!isLoginMode && (
+              <p className="text-[11px] text-slate-500 khmer-text bg-blue-50/60 border border-blue-100 rounded-xl px-3 py-2">
+                សូមប្រើអ៊ីមែលពិត (Gmail, Outlook, Yahoo...) — ប្រព័ន្ធនឹងផ្ញើលេខកូដ 6 ខ្ទង់ដើម្បីផ្ទៀងផ្ទាត់គណនី។
+              </p>
+            )}
+
             <button
               type="submit"
               disabled={loading}
@@ -617,11 +823,11 @@ export default function AuthForm({ isModal = false, onClose }) {
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>{isLoginMode ? 'Signing in...' : 'Creating account...'}</span>
+                  <span>{isLoginMode ? 'Signing in...' : 'Sending verification code...'}</span>
                 </>
               ) : (
                 <>
-                  <span>{isLoginMode ? 'Sign In' : 'Create Account'}</span>
+                  <span>{isLoginMode ? 'Sign In' : 'Send Verification Code'}</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}

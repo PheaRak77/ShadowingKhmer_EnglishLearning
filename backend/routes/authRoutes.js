@@ -5,6 +5,8 @@ import { authenticateToken } from '../middleware/auth.js';
 const router = Router();
 
 router.get('/google-client-id', AuthController.getGoogleClientId);
+router.post('/register/send-code', AuthController.sendRegistrationCode);
+router.post('/register/verify', AuthController.verifyRegistrationCode);
 router.post('/register', AuthController.register);
 router.post('/login', AuthController.login);
 router.post('/forgot-password', AuthController.forgotPassword);

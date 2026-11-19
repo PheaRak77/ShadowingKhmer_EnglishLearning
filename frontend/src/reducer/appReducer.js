@@ -163,6 +163,12 @@ export const initialState = {
       issuedCode: '',
       successMessage: null,
     },
+    registerVerify: {
+      isVerifyStep: false,
+      email: '',
+      code: '',
+      infoMessage: null,
+    },
   },
   googleClientId: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
   appInitializing: true,
@@ -299,6 +305,49 @@ export function appReducer(state, action) {
           ...state.auth,
           isLoginMode: !state.auth.isLoginMode,
           error: null,
+          registerVerify: { ...initialState.auth.registerVerify },
+        },
+      };
+
+    case 'REGISTER_CODE_SENT':
+      return {
+        ...state,
+        auth: {
+          ...state.auth,
+          loading: false,
+          error: null,
+          registerVerify: {
+            isVerifyStep: true,
+            email: action.payload.email || state.auth.form.email,
+            code: '',
+            infoMessage: action.payload.message || null,
+          },
+        },
+      };
+
+    case 'REGISTER_UPDATE_CODE':
+      return {
+        ...state,
+        auth: {
+          ...state.auth,
+          error: null,
+          registerVerify: {
+            ...(state.auth.registerVerify || initialState.auth.registerVerify),
+            code: action.payload,
+          },
+        },
+      };
+
+    case 'REGISTER_BACK_TO_FORM':
+      return {
+        ...state,
+        auth: {
+          ...state.auth,
+          loading: false,
+          error: null,
+          registerVerify: {
+            ...initialState.auth.registerVerify,
+          },
         },
       };
 
@@ -336,6 +385,7 @@ export function appReducer(state, action) {
           loading: false,
           error: null,
           form: { username: '', email: '', password: '', role: 'student' },
+          registerVerify: { ...initialState.auth.registerVerify },
         },
       };
 
@@ -352,6 +402,7 @@ export function appReducer(state, action) {
             isForgotMode: false,
             step: 'request',
           },
+          registerVerify: { ...initialState.auth.registerVerify },
         },
       };
 
@@ -491,6 +542,7 @@ export function appReducer(state, action) {
           loading: false,
           error: null,
           forgotPassword: { ...initialState.auth.forgotPassword },
+          registerVerify: { ...initialState.auth.registerVerify },
         },
       };
 

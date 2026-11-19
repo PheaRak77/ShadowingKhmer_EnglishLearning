@@ -1,12 +1,68 @@
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import dns from 'dns';
 import dotenv from 'dotenv';
 import { UserModel } from '../models/userModel.js';
 import { signUserToken } from '../middleware/auth.js';
-import { seedStarterLessonIfEmpty } from '../config/db.js';
-import { sendResetOtpEmail } from '../services/emailService.js';
+import { pool, seedStarterLessonIfEmpty } from '../config/db.js';
+import { sendResetOtpEmail, sendRegistrationOtpEmail } from '../services/emailService.js';
 
 dotenv.config();
+
+const DISPOSABLE_EMAIL_DOMAINS = new Set([
+  'tempmail.com',
+  'temp-mail.org',
+  '10minutemail.com',
+  'guerrillamail.com',
+  'mailinator.com',
+  'yopmail.com',
+  'throwawaymail.com',
+  'trashmail.com',
+  'sharklasers.com',
+  'getnada.com',
+  'dispostable.com',
+  'fakeinbox.com',
+  'maildrop.cc',
+  'mintemail.com',
+  'mohmal.com',
+]);
+
+async function validateRealEmailAddress(rawEmail) {
+  const email = String(rawEmail || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+    return { valid: false, error: 'Please enter a valid real email address (e.g. name@gmail.com).' };
+  }
+
+  const domain = email.split('@')[1];
+  if (DISPOSABLE_EMAIL_DOMAINS.has(domain)) {
+    return {
+      valid: false,
+      error: 'Temporary or disposable email addresses are not allowed. Please use your real email (Gmail, Outlook, Yahoo, etc.).',
+    };
+  }
+
+  try {
+    const mxRecords = await Promise.race([
+      dns.promises.resolveMx(domain),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('MX timeout')), 4000)),
+    ]);
+    if (!Array.isArray(mxRecords) || mxRecords.length === 0) {
+      return {
+        valid: false,
+        error: `The email domain "@${domain}" cannot receive emails. Please enter your real email address.`,
+      };
+    }
+  } catch (err) {
+    if (err?.code === 'ENOTFOUND' || err?.code === 'ENODATA' || err?.code === 'NXDOMAIN') {
+      return {
+        valid: false,
+        error: `The email domain "@${domain}" does not exist. Please check your spelling and use a real email account.`,
+      };
+    }
+  }
+
+  return { valid: true, email };
+}
 
 // Strictly verify real Google OAuth 2.0 Access Token or ID Token with Google's official API
 async function verifyRealGoogleToken(body) {
@@ -67,40 +123,131 @@ export const AuthController = {
     });
   },
 
-  // POST /api/auth/register (Public registration strictly creates a 'student' account)
-  async register(req, res) {
+  // POST /api/auth/register/send-code (Step 1: Validate real email + send 6-digit OTP to inbox)
+  async sendRegistrationCode(req, res) {
     try {
       const { username, email, password } = req.body;
 
       if (!username || !email || !password) {
         return res.status(400).json({ error: 'Username, email, and password are all required.' });
       }
-
+      if (username.trim().length < 2) {
+        return res.status(400).json({ error: 'Username must be at least 2 characters long.' });
+      }
       if (password.length < 6) {
         return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
       }
 
-      const existing = await UserModel.findByEmail(email);
+      const check = await validateRealEmailAddress(email);
+      if (!check.valid) {
+        return res.status(400).json({ error: check.error });
+      }
+      const cleanEmail = check.email;
+
+      const existing = await UserModel.findByEmail(cleanEmail);
       if (existing) {
-        return res.status(409).json({ error: 'An account with this email already exists.' });
+        return res.status(409).json({
+          error: 'An account with this email already exists. Please Sign In instead.',
+        });
       }
 
+      const otpCode = String(crypto.randomInt(100000, 1000000));
       const passwordHash = await bcrypt.hash(password, 10);
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+      try {
+        const result = await sendRegistrationOtpEmail(cleanEmail, username.trim(), otpCode);
+        if (!result.sent) {
+          return res.status(500).json({
+            error: 'Email verification service is not configured on the server yet. Please sign in with Google instead.',
+          });
+        }
+      } catch (mailErr) {
+        console.error('Registration OTP email error:', mailErr.message);
+        return res.status(502).json({
+          error: `Could not send verification code to ${cleanEmail}: ${mailErr.message}`,
+        });
+      }
+
+      await pool.query(
+        `INSERT INTO pending_registrations (email, username, password_hash, code, expires_at, created_at)
+         VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+         ON CONFLICT (email) DO UPDATE
+         SET username = EXCLUDED.username,
+             password_hash = EXCLUDED.password_hash,
+             code = EXCLUDED.code,
+             expires_at = EXCLUDED.expires_at,
+             created_at = CURRENT_TIMESTAMP`,
+        [cleanEmail, username.trim(), passwordHash, otpCode, expiresAt]
+      );
+
+      return res.json({
+        email: cleanEmail,
+        message: `We sent a 6-digit verification code to ${cleanEmail}. Check your inbox (or Spam folder) to finish creating your account.`,
+      });
+    } catch (err) {
+      console.error('Send registration code error:', err);
+      return res.status(500).json({ error: 'Failed to send verification code.' });
+    }
+  },
+
+  // POST /api/auth/register/verify (Step 2: Confirm 6-digit OTP and activate verified student account)
+  async verifyRegistrationCode(req, res) {
+    try {
+      const cleanEmail = String(req.body?.email || '').trim().toLowerCase();
+      const code = String(req.body?.code || '').trim();
+
+      if (!cleanEmail || !code) {
+        return res.status(400).json({ error: 'Email and 6-digit verification code are required.' });
+      }
+
+      const pendingRes = await pool.query(
+        `SELECT email, username, password_hash
+         FROM pending_registrations
+         WHERE email = $1 AND code = $2 AND expires_at > NOW()
+         LIMIT 1`,
+        [cleanEmail, code]
+      );
+
+      if (pendingRes.rows.length === 0) {
+        return res.status(400).json({
+          error: 'Invalid or expired 6-digit verification code. Please check your email or request a new code.',
+        });
+      }
+
+      const pending = pendingRes.rows[0];
+      const existing = await UserModel.findByEmail(cleanEmail);
+      if (existing) {
+        await pool.query('DELETE FROM pending_registrations WHERE email = $1', [cleanEmail]);
+        return res.status(409).json({ error: 'This email is already registered. Please Sign In.' });
+      }
+
       const user = await UserModel.create({
-        username,
-        email,
-        passwordHash,
+        username: pending.username,
+        email: pending.email,
+        passwordHash: pending.password_hash,
         role: 'student',
       });
 
+      await pool.query('DELETE FROM pending_registrations WHERE email = $1', [cleanEmail]);
       await seedStarterLessonIfEmpty(user.id);
 
       const token = signUserToken(user);
       return res.status(201).json({ user, token });
     } catch (err) {
-      console.error('Register controller error:', err);
-      return res.status(500).json({ error: 'Failed to register user.' });
+      console.error('Verify registration code error:', err);
+      return res.status(500).json({ error: 'Failed to verify registration code.' });
     }
+  },
+
+  // POST /api/auth/register (Requires email verification code — blocks unverified fake signups)
+  async register(req, res) {
+    if (req.body?.code) {
+      return await AuthController.verifyRegistrationCode(req, res);
+    }
+    return res.status(400).json({
+      error: 'Real email verification is required. Please verify your email with the 6-digit code sent to your inbox.',
+    });
   },
 
   // POST /api/auth/login

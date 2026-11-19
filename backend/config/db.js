@@ -232,12 +232,22 @@ export async function ensureSchemaUpToDate() {
           UNIQUE(user_id, lesson_id)
       );
 
+      CREATE TABLE IF NOT EXISTS pending_registrations (
+          email VARCHAR(150) PRIMARY KEY,
+          username VARCHAR(100) NOT NULL,
+          password_hash TEXT NOT NULL,
+          code VARCHAR(10) NOT NULL,
+          expires_at TIMESTAMP NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
       ALTER TABLE lessons ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT FALSE NOT NULL;
       ALTER TABLE lessons ADD COLUMN IF NOT EXISTS cefr_level VARCHAR(10) DEFAULT 'A2' NOT NULL;
       ALTER TABLE lessons ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT 'Daily Conversation' NOT NULL;
       ALTER TABLE lessons ADD COLUMN IF NOT EXISTS view_count INTEGER DEFAULT 0 NOT NULL;
 
       ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'student' NOT NULL;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT TRUE NOT NULL;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_code VARCHAR(10);
