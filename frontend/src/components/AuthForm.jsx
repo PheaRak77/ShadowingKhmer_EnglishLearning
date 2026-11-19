@@ -58,7 +58,17 @@ export function GoogleIcon({ className = 'w-4 h-4' }) {
 
 export default function AuthForm({ isModal = false, onClose }) {
   const { state, dispatch } = useAppContext();
-  const { isLoginMode, form, loading, error, forgotPassword } = state.auth;
+  const { isLoginMode, loading, error } = state.auth;
+  const form = state.auth.form || { username: '', email: '', password: '', role: 'student' };
+  const forgotPassword = state.auth.forgotPassword || {
+    isForgotMode: false,
+    step: 'request',
+    email: '',
+    code: '',
+    newPassword: '',
+    issuedCode: '',
+    successMessage: null,
+  };
   const { googleClientId } = state;
 
   // Fetch GOOGLE_CLIENT_ID configured in backend/.env

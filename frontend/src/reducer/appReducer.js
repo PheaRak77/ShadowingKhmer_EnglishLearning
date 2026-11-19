@@ -324,6 +324,11 @@ export function appReducer(state, action) {
           ...state.auth,
           isLoginMode: action.payload === 'register' ? false : true,
           error: null,
+          forgotPassword: {
+            ...(state.auth.forgotPassword || initialState.auth.forgotPassword),
+            isForgotMode: false,
+            step: 'request',
+          },
         },
       };
 
@@ -449,13 +454,19 @@ export function appReducer(state, action) {
       return {
         ...initialState,
         googleClientId: state.googleClientId,
+        library: {
+          ...initialState.library,
+          lessons: state.library.lessons || [],
+        },
         auth: {
+          ...initialState.auth,
           user: null,
           token: null,
           isLoginMode: true,
           form: { username: '', email: '', password: '', role: 'student' },
           loading: false,
           error: null,
+          forgotPassword: { ...initialState.auth.forgotPassword },
         },
       };
 
