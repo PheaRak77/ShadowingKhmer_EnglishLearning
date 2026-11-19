@@ -47,7 +47,7 @@ export const AdminModel = {
     const result = await pool.query(`
       SELECT l.id, l.user_id, l.video_url, l.video_id, l.title, l.created_at,
              l.is_public, l.cefr_level, l.tags, l.view_count,
-             u.username AS creator_name, u.email AS creator_email,
+             u.username AS creator_name, u.email AS creator_email, u.role AS creator_role,
              COUNT(DISTINCT s.id)::int AS sentence_count,
              COUNT(DISTINCT v.id)::int AS vocab_count,
              COUNT(DISTINCT g.id)::int AS grammar_count
@@ -56,7 +56,7 @@ export const AdminModel = {
       LEFT JOIN sentences s ON s.lesson_id = l.id
       LEFT JOIN vocabulary v ON v.lesson_id = l.id
       LEFT JOIN grammar_points g ON g.lesson_id = l.id
-      GROUP BY l.id, u.username, u.email
+      GROUP BY l.id, u.username, u.email, u.role
       ORDER BY l.created_at DESC
     `);
     return result.rows;

@@ -6,7 +6,6 @@ import {
   Search,
   History,
   BookOpenCheck,
-  Sparkles,
   Loader2,
   Clock,
   CheckCircle2,
@@ -225,19 +224,6 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
                 : 'ជ្រើសរើសវីដេអូមេរៀនអង់គ្លេសដែលអ្នកចូលចិត្ត ដើម្បីហ្វឹកហាត់ស្តាប់ និងនិយាយតាម (Shadowing) ជាមួយការបកប្រែភាសាខ្មែរ។'}
             </p>
           </div>
-
-          {!isAdmin && (
-            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-              <button
-                type="button"
-                onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' })}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#2563EB] hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold shadow-sm transition-all cursor-pointer"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>Create From YouTube Link</span>
-              </button>
-            </div>
-          )}
         </div>
 
         {/* ADMIN-ONLY VIDEO LESSON CREATOR CONTROLLER (Right on All Lessons Page) */}

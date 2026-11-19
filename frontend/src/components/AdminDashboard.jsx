@@ -922,28 +922,34 @@ export default function AdminDashboard({ onOpenLesson }) {
                       </td>
 
                       <td className="py-3.5 px-4">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleLessonPublic(l)}
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border transition-all cursor-pointer ${
-                            l.is_public
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                              : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
-                          }`}
-                          title="Click to show or hide this video on the All Lessons first page"
-                        >
-                          {l.is_public ? (
-                            <>
-                              <Globe className="w-3.5 h-3.5" />
-                              <span>Published</span>
-                            </>
-                          ) : (
-                            <>
-                              <EyeOff className="w-3.5 h-3.5" />
-                              <span>Private</span>
-                            </>
-                          )}
-                        </button>
+                        {l.creator_role === 'admin' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleLessonPublic(l)}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border transition-all cursor-pointer ${
+                              l.is_public
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
+                            }`}
+                            title="Click to show or hide this Admin video on the All Lessons first page"
+                          >
+                            {l.is_public ? (
+                              <>
+                                <Globe className="w-3.5 h-3.5" />
+                                <span>Published</span>
+                              </>
+                            ) : (
+                              <>
+                                <EyeOff className="w-3.5 h-3.5" />
+                                <span>Hidden</span>
+                              </>
+                            )}
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-500 border border-slate-200">
+                            Student Personal
+                          </span>
+                        )}
                       </td>
 
                       <td className="py-3.5 px-4">

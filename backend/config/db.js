@@ -276,8 +276,20 @@ export async function ensureSchemaUpToDate() {
       await seedStarterLessonIfEmpty(u.id);
     }
 
-    // Ensure at least Admin's existing lessons (or unique starter video) are published to "All Lessons" on first migration
-    const pubCount = await pool.query('SELECT COUNT(*)::int AS count FROM lessons WHERE is_public = TRUE');
+    // Strictly separate All Lessons from student personal videos: student videos are never public
+    await pool.query(`
+      UPDATE lessons
+      SET is_public = FALSE
+      WHERE user_id IN (SELECT id FROM users WHERE role <> 'admin')
+    `);
+
+    // Ensure Admin's own existing lessons are published to "All Lessons" on first migration (never student videos)
+    const pubCount = await pool.query(`
+      SELECT COUNT(*)::int AS count
+      FROM lessons l
+      JOIN users u ON u.id = l.user_id
+      WHERE l.is_public = TRUE AND u.role = 'admin'
+    `);
     if (pubCount.rows[0].count === 0) {
       await pool.query(`
         UPDATE lessons
@@ -285,8 +297,9 @@ export async function ensureSchemaUpToDate() {
         WHERE id IN (
           SELECT DISTINCT ON (l.video_id) l.id
           FROM lessons l
-          LEFT JOIN users u ON u.id = l.user_id
-          ORDER BY l.video_id, (CASE WHEN u.role = 'admin' THEN 0 ELSE 1 END), l.created_at DESC
+          JOIN users u ON u.id = l.user_id
+          WHERE u.role = 'admin'
+          ORDER BY l.video_id, l.created_at DESC
         )
       `);
     }

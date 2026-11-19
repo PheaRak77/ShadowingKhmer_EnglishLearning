@@ -171,13 +171,15 @@ export const LessonController = {
       }
 
       await Promise.all([
-        LessonModel.incrementViewCount(lessonId).catch(() => {}),
-        LessonModel.upsertStudyHistory(
-          req.user.id,
-          lessonId,
-          0,
-          details.sentences?.length || 0
-        ).catch(() => {}),
+        details.lesson.is_public ? LessonModel.incrementViewCount(lessonId).catch(() => {}) : Promise.resolve(),
+        details.lesson.is_public
+          ? LessonModel.upsertStudyHistory(
+              req.user.id,
+              lessonId,
+              0,
+              details.sentences?.length || 0
+            ).catch(() => {})
+          : Promise.resolve(),
       ]);
 
       const healed = await healMissingKhmerTranslations(details);
@@ -313,12 +315,14 @@ export const LessonController = {
         tags: isAdminUser && tags ? tags : 'Daily Conversation',
       });
 
-      await LessonModel.upsertStudyHistory(
-        req.user.id,
-        created.lesson.id,
-        0,
-        created.sentences?.length || 0
-      ).catch(() => {});
+      if (created.lesson.is_public) {
+        await LessonModel.upsertStudyHistory(
+          req.user.id,
+          created.lesson.id,
+          0,
+          created.sentences?.length || 0
+        ).catch(() => {});
+      }
 
       if (req.user.role !== 'admin') {
         await LimitModel.recordUsage(req.user.id, videoId).catch(() => {});

@@ -26,15 +26,16 @@ export const LessonModel = {
   },
 
   async findPublicLibraryLessons() {
+    // Strictly return only Admin-created published lessons — never student personal videos
     const result = await pool.query(
       `SELECT l.id, l.user_id, l.video_url, l.video_id, l.title, l.created_at,
               l.is_public, l.cefr_level, l.tags, l.view_count,
               u.username AS creator_name,
               COUNT(DISTINCT s.id)::int AS sentence_count
        FROM lessons l
-       LEFT JOIN users u ON u.id = l.user_id
+       JOIN users u ON u.id = l.user_id
        LEFT JOIN sentences s ON s.lesson_id = l.id
-       WHERE l.is_public = TRUE
+       WHERE l.is_public = TRUE AND u.role = 'admin'
        GROUP BY l.id, u.username
        ORDER BY l.created_at DESC`
     );
@@ -48,10 +49,18 @@ export const LessonModel = {
       lessonQuery = 'SELECT * FROM lessons WHERE id = $1';
       lessonParams = [lessonId];
     } else if (allowPublic && !userId) {
-      lessonQuery = 'SELECT * FROM lessons WHERE id = $1 AND is_public = TRUE';
+      lessonQuery = `
+        SELECT l.* FROM lessons l
+        JOIN users u ON u.id = l.user_id
+        WHERE l.id = $1 AND l.is_public = TRUE AND u.role = 'admin'
+      `;
       lessonParams = [lessonId];
     } else if (allowPublic && userId) {
-      lessonQuery = 'SELECT * FROM lessons WHERE id = $1 AND (user_id = $2 OR is_public = TRUE)';
+      lessonQuery = `
+        SELECT l.* FROM lessons l
+        LEFT JOIN users u ON u.id = l.user_id
+        WHERE l.id = $1 AND (l.user_id = $2 OR (l.is_public = TRUE AND u.role = 'admin'))
+      `;
       lessonParams = [lessonId, userId];
     } else {
       lessonQuery = 'SELECT * FROM lessons WHERE id = $1 AND user_id = $2';
@@ -103,6 +112,7 @@ export const LessonModel = {
   },
 
   async getUserStudyHistory(userId) {
+    // Only show official Admin-curated All Lessons stories the student has opened/studied
     const result = await pool.query(
       `SELECT l.id, l.user_id, l.video_url, l.video_id, l.title, l.created_at,
               l.is_public, l.cefr_level, l.tags, l.view_count,
@@ -110,8 +120,9 @@ export const LessonModel = {
               COUNT(DISTINCT s.id)::int AS sentence_count
        FROM student_study_history h
        JOIN lessons l ON l.id = h.lesson_id
+       JOIN users creator ON creator.id = l.user_id
        LEFT JOIN sentences s ON s.lesson_id = l.id
-       WHERE h.user_id = $1
+       WHERE h.user_id = $1 AND l.is_public = TRUE AND creator.role = 'admin'
        GROUP BY l.id, h.practiced_sentences, h.total_sentences, h.last_studied_at
        ORDER BY h.last_studied_at DESC`,
       [userId]
@@ -149,6 +160,7 @@ export const LessonModel = {
       `UPDATE lessons
        SET ${updates.join(', ')}
        WHERE id = $${idx}
+         AND user_id IN (SELECT id FROM users WHERE role = 'admin')
        RETURNING id, user_id, video_url, video_id, title, created_at, is_public, cefr_level, tags, view_count`,
       params
     );
