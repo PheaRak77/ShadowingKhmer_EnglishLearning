@@ -149,9 +149,11 @@ export default function App() {
   const {
     auth,
     googleClientId,
+    appInitializing,
     isAuthModalOpen,
     activeScreen,
     isMobileMenuOpen,
+    library,
     lessonsList,
     studentQuota,
     lessonCache,
@@ -166,6 +168,7 @@ export default function App() {
     creatingLesson,
     createProgress,
     loadingLesson,
+    loadingLessonTitle,
     notification,
     practiceMode,
     activeSentenceIndex,
@@ -184,6 +187,17 @@ export default function App() {
 
   // Pre-warm Render backend, fetch GOOGLE_CLIENT_ID & public "All Lessons" library on initial page load
   useEffect(() => {
+    const bootStart = Date.now();
+    let bootSettled = false;
+    const finishBoot = () => {
+      if (bootSettled) return;
+      bootSettled = true;
+      const elapsed = Date.now() - bootStart;
+      const delay = Math.max(0, 480 - elapsed);
+      setTimeout(() => dispatch({ type: 'APP_INIT_DONE' }), delay);
+    };
+    const maxSplashTimer = setTimeout(finishBoot, 1800);
+
     fetch(`${API_BASE}/api/health`).catch(() => {});
     fetch(`${API_BASE}/api/auth/google-client-id`)
       .then((res) => parseJsonSafe(res))
@@ -202,6 +216,9 @@ export default function App() {
       })
       .catch(() => {
         dispatch({ type: 'LIBRARY_LOAD_FAILURE' });
+      })
+      .finally(() => {
+        finishBoot();
       });
 
     // Restore guest study history if not logged in
@@ -213,6 +230,8 @@ export default function App() {
         }
       } catch {}
     }
+
+    return () => clearTimeout(maxSplashTimer);
   }, [dispatch, auth.token]);
 
   // Fetch user's profile, lessons, study history, and saved vocabulary when authenticated
@@ -361,27 +380,34 @@ export default function App() {
     };
   }, [sentences, activeSentenceIndex, isLoopingSentence, dispatch]);
 
-  const loadLessonById = async (lessonId, tokenOverride) => {
+  const loadLessonById = async (lessonId, tokenOverride, lessonTitle = '') => {
     playerRef.current = null;
     if (lessonId === 0) {
-      dispatch({
-        type: 'LOAD_LESSON_SUCCESS',
-        payload: DEMO_LESSON_DATA,
-      });
+      dispatch({ type: 'LOAD_LESSON_START', payload: lessonTitle || DEMO_LESSON_DATA.lesson.title });
+      setTimeout(() => {
+        dispatch({
+          type: 'LOAD_LESSON_SUCCESS',
+          payload: DEMO_LESSON_DATA,
+        });
+      }, 220);
       return;
     }
 
-    // Instant 0ms switch if this lesson is already cached in memory
+    // Smooth micro-loading animation even when switching to a cached lesson
     if (lessonCache && lessonCache[lessonId]) {
-      dispatch({
-        type: 'LOAD_LESSON_SUCCESS',
-        payload: lessonCache[lessonId],
-      });
-      dispatch({ type: 'TOGGLE_LESSONS_DRAWER', payload: false });
+      const cached = lessonCache[lessonId];
+      dispatch({ type: 'LOAD_LESSON_START', payload: lessonTitle || cached.lesson?.title || '' });
+      setTimeout(() => {
+        dispatch({
+          type: 'LOAD_LESSON_SUCCESS',
+          payload: cached,
+        });
+        dispatch({ type: 'TOGGLE_LESSONS_DRAWER', payload: false });
+      }, 220);
       return;
     }
 
-    dispatch({ type: 'LOAD_LESSON_START' });
+    dispatch({ type: 'LOAD_LESSON_START', payload: lessonTitle });
     try {
       const activeToken = tokenOverride || auth.token;
       const endpoint = activeToken
@@ -436,7 +462,7 @@ export default function App() {
 
   const handleOpenLibraryLesson = (lessonItem) => {
     if (!lessonItem?.id) return;
-    loadLessonById(lessonItem.id);
+    loadLessonById(lessonItem.id, null, lessonItem.title || '');
   };
 
   // Delete user's own lesson directly from "My Lessons"
@@ -917,9 +943,89 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#FAF9F6] text-slate-900 flex flex-col">
       {/* =========================================================
+          INITIAL APP ENTRY SPLASH ANIMATION
+      ========================================================= */}
+      {appInitializing && (
+        <div className="fixed inset-0 z-[70] bg-[#FAF9F6] flex flex-col items-center justify-center p-6 animate-fade-in-up">
+          <div className="relative flex items-center justify-center mb-5">
+            <span className="absolute w-20 h-20 rounded-3xl bg-blue-500/15 animate-ping" />
+            <div className="relative w-16 h-16 rounded-2xl bg-[#2563EB] flex items-center justify-center text-white shadow-xl shadow-blue-600/25">
+              <Headphones className="w-8 h-8" />
+            </div>
+          </div>
+
+          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900">
+            Shadowing<span className="text-[#2563EB]">Khmer</span>
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500 mt-1 khmer-text">
+            កំពុងរៀបចំមេរៀនភាសាអង់គ្លេស-ខ្មែរសម្រាប់អ្នក...
+          </p>
+
+          {/* Animated 5-Bar Audio Wave */}
+          <div className="flex items-center justify-center gap-1.5 h-8 mt-5">
+            {[0, 0.14, 0.28, 0.42, 0.56].map((delay, i) => (
+              <span
+                key={i}
+                style={{ animationDelay: `${delay}s` }}
+                className="w-1.5 h-6 rounded-full bg-[#2563EB] animate-wave-bar"
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================
+          LESSON SWITCH FROSTED-GLASS LOADING OVERLAY
+      ========================================================= */}
+      {loadingLesson && !appInitializing && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/20 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-white/95 backdrop-blur-xl rounded-3xl border border-slate-200/90 shadow-2xl p-6 text-center space-y-4 animate-fade-in-up">
+            <div className="relative w-14 h-14 mx-auto flex items-center justify-center">
+              <span className="absolute inset-0 rounded-2xl bg-blue-500/20 animate-ping" />
+              <div className="relative w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 text-[#2563EB] flex items-center justify-center">
+                <Headphones className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <div className="text-sm font-extrabold text-slate-900">Opening Lesson...</div>
+              {loadingLessonTitle && (
+                <div className="text-xs font-semibold text-[#2563EB] line-clamp-2 px-2">
+                  {loadingLessonTitle}
+                </div>
+              )}
+              <p className="text-xs text-slate-500 khmer-text">
+                កំពុងផ្ទុកវីដេអូ និងការបកប្រែភាសាខ្មែរ...
+              </p>
+            </div>
+
+            {/* Animated 5-Bar Soundwave + Indeterminate Bar */}
+            <div className="flex items-center justify-center gap-1.5 h-6">
+              {[0, 0.12, 0.24, 0.36, 0.48].map((delay, i) => (
+                <span
+                  key={i}
+                  style={{ animationDelay: `${delay}s` }}
+                  className="w-1.5 h-5 rounded-full bg-[#2563EB] animate-wave-bar"
+                />
+              ))}
+            </div>
+
+            <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+              <div className="h-full w-1/2 rounded-full bg-gradient-to-r from-blue-400 via-[#2563EB] to-indigo-500 animate-indeterminate" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================
           APPLE-STYLE ULTRA-CLEAN NAVIGATION BAR
       ========================================================= */}
       <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl backdrop-saturate-150 border-b border-slate-200/70">
+        {(loadingLesson || library?.loading) && (
+          <div className="absolute bottom-0 left-0 right-0 h-[2.5px] bg-blue-100 overflow-hidden">
+            <div className="h-full w-1/2 bg-gradient-to-r from-blue-400 via-[#2563EB] to-indigo-500 animate-indeterminate" />
+          </div>
+        )}
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between gap-4">
           {/* Left: Minimalist Brand + Mobile All Lessons / My Lessons Triggers */}
           <div className="flex items-center gap-2.5 shrink-0">
@@ -1103,7 +1209,7 @@ export default function App() {
                     {filteredMyLessons.map((item) => (
                       <div
                         key={item.id}
-                        onClick={() => loadLessonById(item.id)}
+                        onClick={() => loadLessonById(item.id, null, item.title)}
                         className={`group w-full text-left px-3 py-2.5 rounded-xl flex items-center justify-between gap-2 transition-all cursor-pointer ${
                           currentLesson?.id === item.id
                             ? 'bg-blue-50 text-[#2563EB] font-semibold border border-blue-200'
@@ -1366,12 +1472,16 @@ export default function App() {
           </div>
         )}
 
-        {activeScreen === 'admin' && isAdmin ? (
-          <AdminDashboard onOpenLesson={(lessonId) => loadLessonById(lessonId)} />
-        ) : activeScreen === 'library' ? (
-          <AllLessonsLibrary onOpenLesson={handleOpenLibraryLesson} />
-        ) : (
-          <>
+        <div
+          key={`${activeScreen}-${currentLesson?.id || 0}`}
+          className="animate-fade-in-up space-y-5 sm:space-y-6"
+        >
+          {activeScreen === 'admin' && isAdmin ? (
+            <AdminDashboard onOpenLesson={(lessonId) => loadLessonById(lessonId)} />
+          ) : activeScreen === 'library' ? (
+            <AllLessonsLibrary onOpenLesson={handleOpenLibraryLesson} />
+          ) : (
+            <>
             {/* Quick Back to All Lessons Breadcrumb */}
             <div className="flex items-center justify-between gap-2">
               <button
@@ -2658,6 +2768,7 @@ export default function App() {
             </div>
           </>
         )}
+        </div>
       </main>
 
       {/* =========================================================

@@ -165,6 +165,7 @@ export const initialState = {
     },
   },
   googleClientId: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
+  appInitializing: true,
   isAuthModalOpen: false,
   activeScreen: 'library', // 'library' (first page) | 'workspace' | 'admin'
   isMobileMenuOpen: false,
@@ -224,6 +225,7 @@ export const initialState = {
   creatingLesson: false,
   createProgress: 0,
   loadingLesson: false,
+  loadingLessonTitle: '',
   notification: null,
   practiceMode: 'lesson', // 'lesson' | 'dictation' | 'vocabulary' | 'grammar'
   activeSentenceIndex: 1,
@@ -259,6 +261,12 @@ export function appReducer(state, action) {
       return {
         ...state,
         googleClientId: action.payload,
+      };
+
+    case 'APP_INIT_DONE':
+      return {
+        ...state,
+        appInitializing: false,
       };
 
     case 'TOGGLE_MOBILE_MENU':
@@ -453,6 +461,7 @@ export function appReducer(state, action) {
     case 'AUTH_LOGOUT':
       return {
         ...initialState,
+        appInitializing: false,
         googleClientId: state.googleClientId,
         library: {
           ...initialState.library,
@@ -989,6 +998,7 @@ export function appReducer(state, action) {
       return {
         ...state,
         loadingLesson: true,
+        loadingLessonTitle: typeof action.payload === 'string' ? action.payload : '',
         isLessonsDrawerOpen: false,
         isMobileMenuOpen: false,
       };
@@ -1002,6 +1012,7 @@ export function appReducer(state, action) {
       return {
         ...state,
         loadingLesson: false,
+        loadingLessonTitle: '',
         activeScreen: 'workspace',
         currentLesson: lesson,
         sentences: sentences || [],
@@ -1027,6 +1038,7 @@ export function appReducer(state, action) {
       return {
         ...state,
         loadingLesson: false,
+        loadingLessonTitle: '',
         notification: {
           type: 'error',
           message: action.payload || 'Could not load lesson.',
