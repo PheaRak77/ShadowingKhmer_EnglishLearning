@@ -142,6 +142,32 @@ export const AdminController = {
     }
   },
 
+  // PATCH /api/admin/lessons/:id
+  async updateLessonMeta(req, res) {
+    try {
+      const lessonId = parseInt(req.params.id, 10);
+      if (Number.isNaN(lessonId)) {
+        return res.status(400).json({ error: 'Invalid lesson ID.' });
+      }
+
+      const updated = await LessonModel.updateLessonLibraryMeta(lessonId, {
+        isPublic: typeof req.body?.isPublic === 'boolean' ? req.body.isPublic : undefined,
+        cefrLevel: req.body?.cefrLevel,
+        tags: req.body?.tags,
+        title: req.body?.title,
+      });
+
+      if (!updated) {
+        return res.status(404).json({ error: 'Lesson not found or no valid fields provided.' });
+      }
+
+      return res.json({ lesson: updated });
+    } catch (err) {
+      console.error('Admin update lesson meta error:', err);
+      return res.status(500).json({ error: 'Failed to update lesson library settings.' });
+    }
+  },
+
   // DELETE /api/admin/lessons/:id
   async deleteLesson(req, res) {
     try {

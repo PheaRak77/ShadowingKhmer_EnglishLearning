@@ -15,6 +15,11 @@ import {
   Loader2,
   SlidersHorizontal,
   RotateCcw,
+  Globe,
+  EyeOff,
+  PlusCircle,
+  Pencil,
+  Flame,
 } from 'lucide-react';
 import { useAppContext } from '../reducer/appReducer.js';
 import { GoogleIcon } from './AuthForm.jsx';
@@ -49,6 +54,9 @@ export default function AdminDashboard({ onOpenLesson }) {
     savingLimit,
     editingUserLimitId,
     userLimitForm,
+    createLibraryForm,
+    editingLessonId,
+    lessonEditForm,
   } = adminDashboard;
 
   const fetchAdminOverview = async () => {
@@ -269,6 +277,128 @@ export default function AdminDashboard({ onOpenLesson }) {
       dispatch({
         type: 'SET_NOTIFICATION',
         payload: { type: 'error', message: 'Network error resetting quota.' },
+      });
+    }
+  };
+
+  const handleAdminCreateLibraryLesson = async (e) => {
+    e.preventDefault();
+    if (!createLibraryForm.videoUrl.trim() || createLibraryForm.creating) return;
+
+    dispatch({ type: 'ADMIN_CREATE_LIBRARY_START' });
+    try {
+      const res = await fetch(`${API_BASE}/api/lessons/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({
+          videoUrl: createLibraryForm.videoUrl.trim(),
+          isPublic: createLibraryForm.isPublic,
+          cefrLevel: createLibraryForm.cefrLevel,
+          tags: createLibraryForm.tags.trim() || 'Daily Conversation',
+        }),
+      });
+      const data = await parseJsonSafe(res);
+      if (res.ok && data.lesson) {
+        dispatch({ type: 'ADMIN_CREATE_LIBRARY_DONE', payload: data });
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: {
+            type: 'success',
+            message: `Lesson "${data.lesson.title}" ${
+              data.lesson.is_public ? 'published to All Lessons first page' : 'created'
+            }!`,
+          },
+        });
+      } else {
+        dispatch({ type: 'ADMIN_CREATE_LIBRARY_DONE' });
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: { type: 'error', message: data.error || 'Failed to create video lesson.' },
+        });
+      }
+    } catch {
+      dispatch({ type: 'ADMIN_CREATE_LIBRARY_DONE' });
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: { type: 'error', message: 'Network error while creating library lesson.' },
+      });
+    }
+  };
+
+  const handleToggleLessonPublic = async (lesson) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/lessons/${lesson.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({ isPublic: !lesson.is_public }),
+      });
+      const data = await parseJsonSafe(res);
+      if (res.ok && data.lesson) {
+        dispatch({ type: 'ADMIN_LESSON_UPDATED', payload: data.lesson });
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: {
+            type: 'success',
+            message: data.lesson.is_public
+              ? `"${data.lesson.title}" is now visible on All Lessons first page!`
+              : `"${data.lesson.title}" hidden from All Lessons first page.`,
+          },
+        });
+      } else {
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: { type: 'error', message: data.error || 'Failed to update lesson visibility.' },
+        });
+      }
+    } catch {
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: { type: 'error', message: 'Network error updating lesson visibility.' },
+      });
+    }
+  };
+
+  const handleSaveLessonEdit = async (lessonId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/lessons/${lessonId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({
+          title: lessonEditForm.title.trim(),
+          cefrLevel: lessonEditForm.cefrLevel,
+          tags: lessonEditForm.tags.trim() || 'Daily Conversation',
+          isPublic: lessonEditForm.isPublic,
+        }),
+      });
+      const data = await parseJsonSafe(res);
+      if (res.ok && data.lesson) {
+        dispatch({ type: 'ADMIN_LESSON_UPDATED', payload: data.lesson });
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: {
+            type: 'success',
+            message: `Updated lesson "${data.lesson.title}" settings.`,
+          },
+        });
+      } else {
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: { type: 'error', message: data.error || 'Failed to save lesson changes.' },
+        });
+      }
+    } catch {
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: { type: 'error', message: 'Network error saving lesson changes.' },
       });
     }
   };
@@ -723,84 +853,305 @@ export default function AdminDashboard({ onOpenLesson }) {
             </table>
           </div>
         ) : (
-          /* LESSONS MANAGEMENT TABLE */
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  <th className="py-3.5 px-6">Lesson Title</th>
-                  <th className="py-3.5 px-4">Creator</th>
-                  <th className="py-3.5 px-4">Content Extracted</th>
-                  <th className="py-3.5 px-4">Created</th>
-                  <th className="py-3.5 px-6 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
-                {filteredLessons.map((l) => (
-                  <tr key={l.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3.5 px-6">
-                      <div className="font-bold text-slate-900">{l.title}</div>
-                      <div className="text-xs text-slate-400">YouTube ID: {l.video_id}</div>
-                    </td>
+          /* ALL LESSONS CONTROLLER + MANAGEMENT TABLE */
+          <div className="space-y-4">
+            {/* Admin Create & Publish Library Video Bar */}
+            <form
+              onSubmit={handleAdminCreateLibraryLesson}
+              className="p-4 sm:px-6 bg-blue-50/40 border-b border-slate-100 flex flex-col xl:flex-row xl:items-center gap-3"
+            >
+              <div className="flex-1 min-w-0">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#2563EB] mb-1">
+                  Add YouTube Video to First Page (All Lessons Controller)
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Paste YouTube URL (e.g. https://youtu.be/...)"
+                  value={createLibraryForm.videoUrl}
+                  onChange={(e) =>
+                    dispatch({
+                      type: 'ADMIN_UPDATE_CREATE_LIBRARY_FORM',
+                      payload: { field: 'videoUrl', value: e.target.value },
+                    })
+                  }
+                  disabled={createLibraryForm.creating}
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
 
-                    <td className="py-3.5 px-4">
-                      <div className="text-xs font-semibold text-slate-800">
-                        {l.creator_name || 'Unknown'}
-                      </div>
-                      <div className="text-[11px] text-slate-500">{l.creator_email || ''}</div>
-                    </td>
+              <div className="flex flex-wrap items-end gap-2.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">Level</label>
+                  <select
+                    value={createLibraryForm.cefrLevel}
+                    onChange={(e) =>
+                      dispatch({
+                        type: 'ADMIN_UPDATE_CREATE_LIBRARY_FORM',
+                        payload: { field: 'cefrLevel', value: e.target.value },
+                      })
+                    }
+                    className="px-2.5 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800"
+                  >
+                    {['A1', 'A2', 'B1', 'B2', 'C1'].map((lvl) => (
+                      <option key={lvl} value={lvl}>
+                        {lvl}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                    <td className="py-3.5 px-4">
-                      <div className="flex flex-wrap gap-1.5 text-xs">
-                        <span className="px-2 py-0.5 rounded-full bg-blue-50 text-[#2563EB] font-semibold">
-                          {l.sentence_count} sentences
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 font-semibold">
-                          {l.vocab_count} vocab
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 font-semibold">
-                          {l.grammar_count} grammar
-                        </span>
-                      </div>
-                    </td>
+                <div className="w-52">
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                    Tags (comma separated)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Travel English, Daily Conversation"
+                    value={createLibraryForm.tags}
+                    onChange={(e) =>
+                      dispatch({
+                        type: 'ADMIN_UPDATE_CREATE_LIBRARY_FORM',
+                        payload: { field: 'tags', value: e.target.value },
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-800 focus:outline-none focus:border-[#2563EB]"
+                  />
+                </div>
 
-                    <td className="py-3.5 px-4 text-xs text-slate-500">
-                      {l.created_at ? new Date(l.created_at).toLocaleDateString() : '—'}
-                    </td>
+                <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={createLibraryForm.isPublic}
+                    onChange={(e) =>
+                      dispatch({
+                        type: 'ADMIN_UPDATE_CREATE_LIBRARY_FORM',
+                        payload: { field: 'isPublic', value: e.target.checked },
+                      })
+                    }
+                    className="rounded border-slate-300 text-[#2563EB]"
+                  />
+                  <span>Publish to First Page</span>
+                </label>
 
-                    <td className="py-3.5 px-6 text-right">
-                      <div className="inline-flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={createLibraryForm.creating || !createLibraryForm.videoUrl.trim()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold shadow-sm cursor-pointer"
+                >
+                  {createLibraryForm.creating ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Creating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <PlusCircle className="w-3.5 h-3.5" />
+                      <span>Add Video Lesson</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    <th className="py-3.5 px-6">Lesson Video</th>
+                    <th className="py-3.5 px-4">Level & Tags</th>
+                    <th className="py-3.5 px-4">All Lessons Visibility</th>
+                    <th className="py-3.5 px-4">Content & Views</th>
+                    <th className="py-3.5 px-6 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {filteredLessons.map((l) => (
+                    <tr key={l.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-3.5 px-6">
+                        <div className="flex items-center gap-3">
+                          <img
+                            src={`https://i.ytimg.com/vi/${l.video_id}/hqdefault.jpg`}
+                            alt={l.title}
+                            className="w-16 h-10 rounded-lg object-cover border border-slate-200 shrink-0"
+                          />
+                          <div className="min-w-0">
+                            {editingLessonId === l.id ? (
+                              <input
+                                type="text"
+                                value={lessonEditForm.title}
+                                onChange={(e) =>
+                                  dispatch({
+                                    type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
+                                    payload: { field: 'title', value: e.target.value },
+                                  })
+                                }
+                                className="w-60 px-2 py-1 rounded-lg border border-blue-300 text-xs font-bold text-slate-900"
+                              />
+                            ) : (
+                              <div className="font-bold text-slate-900 line-clamp-1">{l.title}</div>
+                            )}
+                            <div className="text-[11px] text-slate-400">
+                              By {l.creator_name || 'Unknown'} • ID: {l.video_id}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        {editingLessonId === l.id ? (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <select
+                              value={lessonEditForm.cefrLevel}
+                              onChange={(e) =>
+                                dispatch({
+                                  type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
+                                  payload: { field: 'cefrLevel', value: e.target.value },
+                                })
+                              }
+                              className="px-2 py-1 rounded-lg border border-slate-300 text-xs font-bold"
+                            >
+                              {['A1', 'A2', 'B1', 'B2', 'C1'].map((lvl) => (
+                                <option key={lvl} value={lvl}>
+                                  {lvl}
+                                </option>
+                              ))}
+                            </select>
+                            <input
+                              type="text"
+                              value={lessonEditForm.tags}
+                              onChange={(e) =>
+                                dispatch({
+                                  type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
+                                  payload: { field: 'tags', value: e.target.value },
+                                })
+                              }
+                              className="w-40 px-2 py-1 rounded-lg border border-slate-300 text-xs"
+                              placeholder="Tags..."
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleSaveLessonEdit(l.id)}
+                              className="px-2.5 py-1 rounded-lg bg-[#2563EB] text-white text-[11px] font-bold cursor-pointer"
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                dispatch({ type: 'ADMIN_OPEN_LESSON_EDIT', payload: null })
+                              }
+                              className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600 text-[11px] font-semibold cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-extrabold">
+                                {l.cefr_level || 'A2'}
+                              </span>
+                              {String(l.tags || 'Daily Conversation')
+                                .split(',')
+                                .map((t) => t.trim())
+                                .filter(Boolean)
+                                .slice(0, 2)
+                                .map((tag, i) => (
+                                  <span
+                                    key={i}
+                                    className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[11px]"
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                            </div>
+                          </div>
+                        )}
+                      </td>
+
+                      <td className="py-3.5 px-4">
                         <button
                           type="button"
-                          onClick={() => onOpenLesson(l.id)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-[#2563EB] text-xs font-semibold cursor-pointer"
+                          onClick={() => handleToggleLessonPublic(l)}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border transition-all cursor-pointer ${
+                            l.is_public
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                              : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
+                          }`}
+                          title="Click to show or hide this video on the All Lessons first page"
                         >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                          <span>Open</span>
+                          {l.is_public ? (
+                            <>
+                              <Globe className="w-3.5 h-3.5" />
+                              <span>Published</span>
+                            </>
+                          ) : (
+                            <>
+                              <EyeOff className="w-3.5 h-3.5" />
+                              <span>Private</span>
+                            </>
+                          )}
                         </button>
+                      </td>
 
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteLesson(l.id, l.title)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
-                          title="Delete lesson"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      <td className="py-3.5 px-4">
+                        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                          <span className="px-2 py-0.5 rounded-full bg-blue-50 text-[#2563EB] font-semibold">
+                            {l.sentence_count} sents
+                          </span>
+                          <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-semibold">
+                            <Flame className="w-3 h-3" />
+                            <span>{l.view_count || 0}</span>
+                          </span>
+                        </div>
+                      </td>
 
-                {filteredLessons.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center text-xs text-slate-400">
-                      No lessons found.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                      <td className="py-3.5 px-6 text-right">
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              dispatch({ type: 'ADMIN_OPEN_LESSON_EDIT', payload: l })
+                            }
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-[#2563EB] hover:bg-blue-50 cursor-pointer"
+                            title="Edit level, tags, or title"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => onOpenLesson(l.id)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-[#2563EB] text-xs font-semibold cursor-pointer"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>Open</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteLesson(l.id, l.title)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                            title="Delete lesson"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {filteredLessons.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-xs text-slate-400">
+                        No lessons found.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

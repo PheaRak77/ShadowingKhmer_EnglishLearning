@@ -222,6 +222,21 @@ export async function ensureSchemaUpToDate() {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE IF NOT EXISTS student_study_history (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+          lesson_id INTEGER REFERENCES lessons(id) ON DELETE CASCADE,
+          practiced_sentences INTEGER DEFAULT 0,
+          total_sentences INTEGER DEFAULT 0,
+          last_studied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(user_id, lesson_id)
+      );
+
+      ALTER TABLE lessons ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT FALSE NOT NULL;
+      ALTER TABLE lessons ADD COLUMN IF NOT EXISTS cefr_level VARCHAR(10) DEFAULT 'A2' NOT NULL;
+      ALTER TABLE lessons ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT 'Daily Conversation' NOT NULL;
+      ALTER TABLE lessons ADD COLUMN IF NOT EXISTS view_count INTEGER DEFAULT 0 NOT NULL;
+
       ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'student' NOT NULL;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
@@ -259,6 +274,21 @@ export async function ensureSchemaUpToDate() {
     const allUsers = await pool.query('SELECT id FROM users');
     for (const u of allUsers.rows) {
       await seedStarterLessonIfEmpty(u.id);
+    }
+
+    // Ensure at least Admin's existing lessons (or unique starter video) are published to "All Lessons" on first migration
+    const pubCount = await pool.query('SELECT COUNT(*)::int AS count FROM lessons WHERE is_public = TRUE');
+    if (pubCount.rows[0].count === 0) {
+      await pool.query(`
+        UPDATE lessons
+        SET is_public = TRUE
+        WHERE id IN (
+          SELECT DISTINCT ON (l.video_id) l.id
+          FROM lessons l
+          LEFT JOIN users u ON u.id = l.user_id
+          ORDER BY l.video_id, (CASE WHEN u.role = 'admin' THEN 0 ELSE 1 END), l.created_at DESC
+        )
+      `);
     }
 
     console.log('✅ PostgreSQL schema verified (Roles: "admin" & "student" | Real Google OAuth).');

@@ -46,6 +46,7 @@ export const AdminModel = {
   async getAllLessonsWithCreator() {
     const result = await pool.query(`
       SELECT l.id, l.user_id, l.video_url, l.video_id, l.title, l.created_at,
+             l.is_public, l.cefr_level, l.tags, l.view_count,
              u.username AS creator_name, u.email AS creator_email,
              COUNT(DISTINCT s.id)::int AS sentence_count,
              COUNT(DISTINCT v.id)::int AS vocab_count,

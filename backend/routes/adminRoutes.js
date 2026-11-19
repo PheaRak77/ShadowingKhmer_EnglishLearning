@@ -11,6 +11,7 @@ router.patch('/settings/student-limit', AdminController.updateStudentLimit);
 router.patch('/users/:id/role', AdminController.updateUserRole);
 router.patch('/users/:id/limit', AdminController.updateUserLimit);
 router.delete('/users/:id', AdminController.deleteUser);
+router.patch('/lessons/:id', AdminController.updateLessonMeta);
 router.delete('/lessons/:id', AdminController.deleteLesson);
 
 export default router;

@@ -80,6 +80,81 @@ export const LessonController = {
     }
   },
 
+  // GET /api/lessons/library (Public — first page for new users, guests, and students)
+  async getPublicLibrary(req, res) {
+    try {
+      const lessons = await LessonModel.findPublicLibraryLessons();
+      return res.json({ lessons });
+    } catch (err) {
+      console.error('Get public library error:', err);
+      return res.status(500).json({ error: 'Failed to load All Lessons library.' });
+    }
+  },
+
+  // GET /api/lessons/public/:id (Public — allows new users / guests to open Admin-published lessons)
+  async getPublicLessonDetails(req, res) {
+    try {
+      const lessonId = parseInt(req.params.id, 10);
+      if (Number.isNaN(lessonId)) {
+        return res.status(400).json({ error: 'Invalid lesson ID.' });
+      }
+
+      const details = await LessonModel.findByIdWithDetails(lessonId, null, false, true);
+      if (!details) {
+        return res.status(404).json({ error: 'Public lesson not found.' });
+      }
+
+      await LessonModel.incrementViewCount(lessonId).catch(() => {});
+      const healed = await healMissingKhmerTranslations(details);
+      return res.json(healed);
+    } catch (err) {
+      console.error('Get public lesson details error:', err);
+      return res.status(500).json({ error: 'Failed to load public lesson.' });
+    }
+  },
+
+  // GET /api/lessons/history (Authenticated — student's studied lessons/stories)
+  async getStudyHistory(req, res) {
+    try {
+      const history = await LessonModel.getUserStudyHistory(req.user.id);
+      return res.json({ history });
+    } catch (err) {
+      console.error('Get study history error:', err);
+      return res.status(500).json({ error: 'Failed to load study history.' });
+    }
+  },
+
+  // POST /api/lessons/:id/study (Authenticated — records or updates student's studied progress)
+  async recordStudyProgress(req, res) {
+    try {
+      const lessonId = parseInt(req.params.id, 10);
+      if (Number.isNaN(lessonId)) {
+        return res.status(400).json({ error: 'Invalid lesson ID.' });
+      }
+
+      const isAdmin = req.user.role === 'admin';
+      const details = await LessonModel.findByIdWithDetails(lessonId, req.user.id, isAdmin, true);
+      if (!details) {
+        return res.status(404).json({ error: 'Lesson not found.' });
+      }
+
+      const practicedSentences = parseInt(req.body?.practicedSentences, 10) || 0;
+      const totalSentences =
+        parseInt(req.body?.totalSentences, 10) || details.sentences?.length || 0;
+
+      const record = await LessonModel.upsertStudyHistory(
+        req.user.id,
+        lessonId,
+        practicedSentences,
+        totalSentences
+      );
+      return res.json({ record });
+    } catch (err) {
+      console.error('Record study progress error:', err);
+      return res.status(500).json({ error: 'Failed to save study progress.' });
+    }
+  },
+
   // GET /api/lessons/:id
   async getLessonDetails(req, res) {
     try {
@@ -89,11 +164,21 @@ export const LessonController = {
       }
 
       const isAdmin = req.user.role === 'admin';
-      const details = await LessonModel.findByIdWithDetails(lessonId, req.user.id, isAdmin);
+      const details = await LessonModel.findByIdWithDetails(lessonId, req.user.id, isAdmin, true);
 
       if (!details) {
         return res.status(404).json({ error: 'Lesson not found.' });
       }
+
+      await Promise.all([
+        LessonModel.incrementViewCount(lessonId).catch(() => {}),
+        LessonModel.upsertStudyHistory(
+          req.user.id,
+          lessonId,
+          0,
+          details.sentences?.length || 0
+        ).catch(() => {}),
+      ]);
 
       const healed = await healMissingKhmerTranslations(details);
       return res.json(healed);
@@ -106,7 +191,17 @@ export const LessonController = {
   // POST /api/lessons/create
   async createLesson(req, res) {
     const startTime = Date.now();
-    const { videoUrl, manualTranscript, prefetchedVtt, prefetchedTitle } = req.body;
+    const {
+      videoUrl,
+      manualTranscript,
+      prefetchedVtt,
+      prefetchedTitle,
+      isPublic,
+      cefrLevel,
+      tags,
+    } = req.body;
+    const isAdminUser = req.user.role === 'admin';
+    const shouldPublish = isAdminUser && Boolean(isPublic);
     const videoId = extractYouTubeId(videoUrl);
 
     if (!videoId) {
@@ -118,6 +213,16 @@ export const LessonController = {
       try {
         const existing = await LessonModel.findExistingByVideoId(videoId, req.user.id);
         if (existing) {
+          if (isAdminUser && (typeof isPublic === 'boolean' || cefrLevel || tags)) {
+            const updatedMeta = await LessonModel.updateLessonLibraryMeta(existing.lesson.id, {
+              isPublic: typeof isPublic === 'boolean' ? isPublic : undefined,
+              cefrLevel,
+              tags,
+            });
+            if (updatedMeta) {
+              existing.lesson = { ...existing.lesson, ...updatedMeta };
+            }
+          }
           console.log(`⚡ Instant cache hit from PostgreSQL for video ${videoId}`);
           const [healed, quota] = await Promise.all([
             healMissingKhmerTranslations(existing),
@@ -203,7 +308,17 @@ export const LessonController = {
         videoId,
         extractedSentences,
         aiData,
+        isPublic: shouldPublish,
+        cefrLevel: isAdminUser && cefrLevel ? cefrLevel : 'A2',
+        tags: isAdminUser && tags ? tags : 'Daily Conversation',
       });
+
+      await LessonModel.upsertStudyHistory(
+        req.user.id,
+        created.lesson.id,
+        0,
+        created.sentences?.length || 0
+      ).catch(() => {});
 
       if (req.user.role !== 'admin') {
         await LimitModel.recordUsage(req.user.id, videoId).catch(() => {});

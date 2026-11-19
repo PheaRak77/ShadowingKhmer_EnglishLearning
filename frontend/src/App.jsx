@@ -40,6 +40,7 @@ import {
 import { useAppContext, DEMO_LESSON_DATA } from './reducer/appReducer.js';
 import AuthForm, { GoogleIcon } from './components/AuthForm.jsx';
 import AdminDashboard from './components/AdminDashboard.jsx';
+import AllLessonsLibrary from './components/AllLessonsLibrary.jsx';
 import Footer from './components/Footer.jsx';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -181,7 +182,7 @@ export default function App() {
     playerSize,
   } = state;
 
-  // Pre-warm Render backend & fetch GOOGLE_CLIENT_ID on initial page load
+  // Pre-warm Render backend, fetch GOOGLE_CLIENT_ID & public "All Lessons" library on initial page load
   useEffect(() => {
     fetch(`${API_BASE}/api/health`).catch(() => {});
     fetch(`${API_BASE}/api/auth/google-client-id`)
@@ -192,9 +193,29 @@ export default function App() {
         }
       })
       .catch(() => {});
-  }, [dispatch]);
 
-  // Fetch user's profile, lessons, and saved vocabulary when authenticated
+    dispatch({ type: 'LIBRARY_LOAD_START' });
+    fetch(`${API_BASE}/api/lessons/library`)
+      .then((res) => parseJsonSafe(res))
+      .then((data) => {
+        dispatch({ type: 'LIBRARY_LOAD_SUCCESS', payload: data.lessons || [] });
+      })
+      .catch(() => {
+        dispatch({ type: 'LIBRARY_LOAD_FAILURE' });
+      });
+
+    // Restore guest study history if not logged in
+    if (!auth.token) {
+      try {
+        const guestHist = JSON.parse(localStorage.getItem('sk_guest_history') || '[]');
+        if (Array.isArray(guestHist)) {
+          dispatch({ type: 'LIBRARY_SET_HISTORY', payload: guestHist });
+        }
+      } catch {}
+    }
+  }, [dispatch, auth.token]);
+
+  // Fetch user's profile, lessons, study history, and saved vocabulary when authenticated
   useEffect(() => {
     if (!auth.token) return;
 
@@ -205,10 +226,11 @@ export default function App() {
 
     async function fetchInitialData() {
       try {
-        const [meRes, lessonsRes, vocabRes] = await Promise.all([
+        const [meRes, lessonsRes, vocabRes, historyRes] = await Promise.all([
           fetch(`${API_BASE}/api/auth/me`, { headers: authHeaders }),
           fetch(`${API_BASE}/api/lessons`, { headers: authHeaders }),
           fetch(`${API_BASE}/api/vocabulary`, { headers: authHeaders }),
+          fetch(`${API_BASE}/api/lessons/history`, { headers: authHeaders }),
         ]);
 
         if (lessonsRes.status === 401 || lessonsRes.status === 403) {
@@ -236,10 +258,6 @@ export default function App() {
             type: 'SET_LESSONS_LIST',
             payload: { lessons: list, quota: lessonsData.quota || null },
           });
-
-          if (list.length > 0) {
-            loadLessonById(list[0].id, auth.token);
-          }
         }
 
         if (vocabRes.ok) {
@@ -247,6 +265,14 @@ export default function App() {
           dispatch({
             type: 'SET_ALL_SAVED_VOCABULARY',
             payload: vocabData.vocabulary || [],
+          });
+        }
+
+        if (historyRes.ok) {
+          const historyData = await parseJsonSafe(historyRes);
+          dispatch({
+            type: 'LIBRARY_SET_HISTORY',
+            payload: historyData.history || [],
           });
         }
       } catch (err) {
@@ -357,14 +383,43 @@ export default function App() {
 
     dispatch({ type: 'LOAD_LESSON_START' });
     try {
-      const res = await fetch(`${API_BASE}/api/lessons/${lessonId}`, {
-        headers: {
-          Authorization: `Bearer ${tokenOverride || auth.token}`,
-        },
+      const activeToken = tokenOverride || auth.token;
+      const endpoint = activeToken
+        ? `${API_BASE}/api/lessons/${lessonId}`
+        : `${API_BASE}/api/lessons/public/${lessonId}`;
+      const res = await fetch(endpoint, {
+        headers: activeToken ? { Authorization: `Bearer ${activeToken}` } : {},
       });
       const data = await parseJsonSafe(res);
       if (res.ok) {
         dispatch({ type: 'LOAD_LESSON_SUCCESS', payload: data });
+        // Refresh study history silently
+        if (activeToken) {
+          fetch(`${API_BASE}/api/lessons/history`, {
+            headers: { Authorization: `Bearer ${activeToken}` },
+          })
+            .then((r) => (r.ok ? parseJsonSafe(r) : null))
+            .then((hist) => {
+              if (hist?.history) {
+                dispatch({ type: 'LIBRARY_SET_HISTORY', payload: hist.history });
+              }
+            })
+            .catch(() => {});
+        } else if (data.lesson) {
+          try {
+            const prev = JSON.parse(localStorage.getItem('sk_guest_history') || '[]');
+            const entry = {
+              ...data.lesson,
+              sentence_count: data.sentences?.length || 0,
+              practiced_sentences: 0,
+              total_sentences: data.sentences?.length || 0,
+              last_studied_at: new Date().toISOString(),
+            };
+            const next = [entry, ...prev.filter((item) => item.id !== entry.id)].slice(0, 50);
+            localStorage.setItem('sk_guest_history', JSON.stringify(next));
+            dispatch({ type: 'LIBRARY_SET_HISTORY', payload: next });
+          } catch {}
+        }
       } else {
         dispatch({
           type: 'LOAD_LESSON_FAILURE',
@@ -377,6 +432,11 @@ export default function App() {
         payload: 'Network error while loading lesson.',
       });
     }
+  };
+
+  const handleOpenLibraryLesson = (lessonItem) => {
+    if (!lessonItem?.id) return;
+    loadLessonById(lessonItem.id);
   };
 
   // Delete user's own lesson directly from "My Lessons"
@@ -579,14 +639,26 @@ export default function App() {
         payload: data,
       });
 
-      const vocabRes = await fetch(`${API_BASE}/api/vocabulary`, {
-        headers: { Authorization: `Bearer ${auth.token}` },
-      });
+      const [vocabRes, histRes] = await Promise.all([
+        fetch(`${API_BASE}/api/vocabulary`, {
+          headers: { Authorization: `Bearer ${auth.token}` },
+        }),
+        fetch(`${API_BASE}/api/lessons/history`, {
+          headers: { Authorization: `Bearer ${auth.token}` },
+        }),
+      ]);
       if (vocabRes.ok) {
         const vocabData = await parseJsonSafe(vocabRes);
         dispatch({
           type: 'SET_ALL_SAVED_VOCABULARY',
           payload: vocabData.vocabulary || [],
+        });
+      }
+      if (histRes.ok) {
+        const histData = await parseJsonSafe(histRes);
+        dispatch({
+          type: 'LIBRARY_SET_HISTORY',
+          payload: histData.history || [],
         });
       }
     } catch (err) {
@@ -793,6 +865,53 @@ export default function App() {
   const progressPercent =
     sentences.length > 0 ? Math.round((completedCount / sentences.length) * 100) : 0;
 
+  // Sync student's studied sentence count to PostgreSQL / localStorage history
+  useEffect(() => {
+    if (!currentLesson?.id || currentLesson.id === 0 || completedCount === 0) return;
+
+    if (auth.token) {
+      fetch(`${API_BASE}/api/lessons/${currentLesson.id}/study`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({
+          practicedSentences: completedCount,
+          totalSentences: sentences.length,
+        }),
+      })
+        .then(() =>
+          fetch(`${API_BASE}/api/lessons/history`, {
+            headers: { Authorization: `Bearer ${auth.token}` },
+          })
+        )
+        .then((r) => (r.ok ? parseJsonSafe(r) : null))
+        .then((hist) => {
+          if (hist?.history) {
+            dispatch({ type: 'LIBRARY_SET_HISTORY', payload: hist.history });
+          }
+        })
+        .catch(() => {});
+    } else {
+      try {
+        const prev = JSON.parse(localStorage.getItem('sk_guest_history') || '[]');
+        const next = prev.map((item) =>
+          item.id === currentLesson.id
+            ? {
+                ...item,
+                practiced_sentences: Math.max(item.practiced_sentences || 0, completedCount),
+                total_sentences: sentences.length,
+                last_studied_at: new Date().toISOString(),
+              }
+            : item
+        );
+        localStorage.setItem('sk_guest_history', JSON.stringify(next));
+        dispatch({ type: 'LIBRARY_SET_HISTORY', payload: next });
+      } catch {}
+    }
+  }, [completedCount, currentLesson?.id, sentences.length, auth.token, dispatch]);
+
   const isAdmin = !isGuest && auth.user?.role === 'admin';
 
   return (
@@ -802,11 +921,11 @@ export default function App() {
       ========================================================= */}
       <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl backdrop-saturate-150 border-b border-slate-200/70">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between gap-4">
-          {/* Left: Minimalist Brand + Mobile Lessons Trigger */}
-          <div className="flex items-center gap-3 shrink-0">
+          {/* Left: Minimalist Brand + Mobile All Lessons / My Lessons Triggers */}
+          <div className="flex items-center gap-2.5 shrink-0">
             <button
               type="button"
-              onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' })}
+              onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'library' })}
               className="flex items-center gap-2 cursor-pointer group whitespace-nowrap"
             >
               <div className="w-7 h-7 rounded-lg bg-[#2563EB] flex items-center justify-center text-white shadow-sm group-hover:scale-105 transition-transform">
@@ -819,6 +938,18 @@ export default function App() {
 
             <button
               type="button"
+              onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'library' })}
+              className={`lg:hidden inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                activeScreen === 'library'
+                  ? 'bg-[#2563EB] text-white'
+                  : 'bg-slate-100 hover:bg-slate-200/70 text-slate-700'
+              }`}
+            >
+              <span>All Lessons</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() =>
                 isGuest
                   ? dispatch({ type: 'OPEN_AUTH_MODAL', payload: 'login' })
@@ -827,7 +958,7 @@ export default function App() {
               className="lg:hidden inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200/70 text-slate-700 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap"
             >
               <FolderOpen className="w-3.5 h-3.5 text-[#2563EB]" />
-              <span>Lessons ({lessonsList.length})</span>
+              <span>My ({lessonsList.length})</span>
               {isGuest ? (
                 <Lock className="w-3 h-3 text-slate-400" />
               ) : (
@@ -838,6 +969,21 @@ export default function App() {
 
           {/* Center: Clean Airy Apple.com-Style Navigation Links (Desktop >= lg) */}
           <nav className="hidden lg:flex items-center gap-6">
+            <button
+              type="button"
+              onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'library' })}
+              className={`relative py-4 text-[13px] transition-colors cursor-pointer whitespace-nowrap ${
+                activeScreen === 'library'
+                  ? 'font-semibold text-slate-900'
+                  : 'font-medium text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <span>All Lessons</span>
+              {activeScreen === 'library' && (
+                <span className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full bg-[#2563EB]" />
+              )}
+            </button>
+
             {[
               { id: 'lesson', label: 'Shadowing' },
               { id: 'dictation', label: 'Dictation' },
@@ -1199,10 +1345,45 @@ export default function App() {
           MAIN CONTENT AREA (RESPONSIVE CONTAINER)
       ========================================================= */}
       <main className="flex-1 max-w-[1400px] w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5 sm:space-y-6">
+        {notification && activeScreen !== 'workspace' && (
+          <div
+            className={`px-4 py-3 rounded-2xl text-xs sm:text-sm font-medium flex items-center justify-between gap-3 shadow-sm ${
+              notification.type === 'error'
+                ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                : notification.type === 'info'
+                ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+            }`}
+          >
+            <span>{notification.message}</span>
+            <button
+              type="button"
+              onClick={() => dispatch({ type: 'SET_NOTIFICATION', payload: null })}
+              className="text-current opacity-70 hover:opacity-100 shrink-0 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {activeScreen === 'admin' && isAdmin ? (
           <AdminDashboard onOpenLesson={(lessonId) => loadLessonById(lessonId)} />
+        ) : activeScreen === 'library' ? (
+          <AllLessonsLibrary onOpenLesson={handleOpenLibraryLesson} />
         ) : (
           <>
+            {/* Quick Back to All Lessons Breadcrumb */}
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'library' })}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-[#2563EB] transition-colors cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                <span>Back to All Lessons & Study History</span>
+              </button>
+            </div>
+
             {/* Top YouTube Lesson Creator Bar */}
             <div className="bg-white rounded-2xl border border-slate-200 p-3.5 sm:p-4 shadow-sm">
               <form

@@ -166,8 +166,16 @@ export const initialState = {
   },
   googleClientId: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
   isAuthModalOpen: false,
-  activeScreen: 'workspace', // 'workspace' | 'admin'
+  activeScreen: 'library', // 'library' (first page) | 'workspace' | 'admin'
   isMobileMenuOpen: false,
+  library: {
+    loading: false,
+    lessons: [],
+    history: [],
+    activeTab: 'all', // 'all' | 'history'
+    selectedLevel: 'ALL',
+    searchQuery: '',
+  },
   adminDashboard: {
     loading: false,
     stats: {
@@ -187,6 +195,20 @@ export const initialState = {
     savingLimit: false,
     editingUserLimitId: null,
     userLimitForm: { maxLessons: '', windowDays: '' },
+    createLibraryForm: {
+      videoUrl: '',
+      cefrLevel: 'A2',
+      tags: 'Daily Conversation, Story',
+      isPublic: true,
+      creating: false,
+    },
+    editingLessonId: null,
+    lessonEditForm: {
+      title: '',
+      cefrLevel: 'A2',
+      tags: '',
+      isPublic: true,
+    },
   },
   lessonsList: [],
   studentQuota: null,
@@ -632,6 +654,11 @@ export function appReducer(state, action) {
       return {
         ...state,
         lessonsList: state.lessonsList.filter((l) => l.id !== deletedLessonId),
+        library: {
+          ...state.library,
+          lessons: state.library.lessons.filter((l) => l.id !== deletedLessonId),
+          history: state.library.history.filter((l) => l.id !== deletedLessonId),
+        },
         adminDashboard: {
           ...state.adminDashboard,
           lessons: state.adminDashboard.lessons.filter((l) => l.id !== deletedLessonId),
@@ -642,6 +669,193 @@ export function appReducer(state, action) {
         },
       };
     }
+
+    case 'ADMIN_UPDATE_CREATE_LIBRARY_FORM':
+      return {
+        ...state,
+        adminDashboard: {
+          ...state.adminDashboard,
+          createLibraryForm: {
+            ...state.adminDashboard.createLibraryForm,
+            [action.payload.field]: action.payload.value,
+          },
+        },
+      };
+
+    case 'ADMIN_CREATE_LIBRARY_START':
+      return {
+        ...state,
+        adminDashboard: {
+          ...state.adminDashboard,
+          createLibraryForm: {
+            ...state.adminDashboard.createLibraryForm,
+            creating: true,
+          },
+        },
+      };
+
+    case 'ADMIN_CREATE_LIBRARY_DONE': {
+      const createdLesson = action.payload?.lesson;
+      const sentenceCount = action.payload?.sentences?.length || 0;
+      const enriched = createdLesson
+        ? {
+            ...createdLesson,
+            sentence_count: sentenceCount,
+            vocab_count: action.payload?.vocabulary?.length || 0,
+            grammar_count: action.payload?.grammar_points?.length || 0,
+            creator_name: state.auth.user?.username || 'Admin',
+            creator_email: state.auth.user?.email || '',
+          }
+        : null;
+
+      return {
+        ...state,
+        library: {
+          ...state.library,
+          lessons:
+            enriched && enriched.is_public
+              ? [enriched, ...state.library.lessons.filter((l) => l.id !== enriched.id)]
+              : state.library.lessons,
+        },
+        adminDashboard: {
+          ...state.adminDashboard,
+          createLibraryForm: enriched
+            ? {
+                ...state.adminDashboard.createLibraryForm,
+                videoUrl: '',
+                creating: false,
+              }
+            : {
+                ...state.adminDashboard.createLibraryForm,
+                creating: false,
+              },
+          lessons: enriched
+            ? [enriched, ...state.adminDashboard.lessons.filter((l) => l.id !== enriched.id)]
+            : state.adminDashboard.lessons,
+        },
+      };
+    }
+
+    case 'ADMIN_OPEN_LESSON_EDIT':
+      return {
+        ...state,
+        adminDashboard: {
+          ...state.adminDashboard,
+          editingLessonId: action.payload ? action.payload.id : null,
+          lessonEditForm: action.payload
+            ? {
+                title: action.payload.title || '',
+                cefrLevel: action.payload.cefr_level || 'A2',
+                tags: action.payload.tags || 'Daily Conversation',
+                isPublic: Boolean(action.payload.is_public),
+              }
+            : { title: '', cefrLevel: 'A2', tags: '', isPublic: true },
+        },
+      };
+
+    case 'ADMIN_UPDATE_LESSON_EDIT_FIELD':
+      return {
+        ...state,
+        adminDashboard: {
+          ...state.adminDashboard,
+          lessonEditForm: {
+            ...state.adminDashboard.lessonEditForm,
+            [action.payload.field]: action.payload.value,
+          },
+        },
+      };
+
+    case 'ADMIN_LESSON_UPDATED': {
+      const updated = action.payload;
+      const existingAdminLesson = state.adminDashboard.lessons.find((l) => l.id === updated.id);
+      const mergedLesson = { ...(existingAdminLesson || {}), ...updated };
+      const nextLibraryLessons = updated.is_public
+        ? [
+            mergedLesson,
+            ...state.library.lessons.filter((l) => l.id !== updated.id),
+          ]
+        : state.library.lessons.filter((l) => l.id !== updated.id);
+
+      return {
+        ...state,
+        library: {
+          ...state.library,
+          lessons: nextLibraryLessons,
+        },
+        adminDashboard: {
+          ...state.adminDashboard,
+          editingLessonId: null,
+          lessons: state.adminDashboard.lessons.map((l) =>
+            l.id === updated.id ? { ...l, ...updated } : l
+          ),
+        },
+      };
+    }
+
+    // --- ALL LESSONS LIBRARY & STUDY HISTORY ---
+    case 'LIBRARY_LOAD_START':
+      return {
+        ...state,
+        library: {
+          ...state.library,
+          loading: true,
+        },
+      };
+
+    case 'LIBRARY_LOAD_SUCCESS':
+      return {
+        ...state,
+        library: {
+          ...state.library,
+          loading: false,
+          lessons: action.payload || [],
+        },
+      };
+
+    case 'LIBRARY_LOAD_FAILURE':
+      return {
+        ...state,
+        library: {
+          ...state.library,
+          loading: false,
+        },
+      };
+
+    case 'LIBRARY_SET_HISTORY':
+      return {
+        ...state,
+        library: {
+          ...state.library,
+          history: action.payload || [],
+        },
+      };
+
+    case 'LIBRARY_SET_TAB':
+      return {
+        ...state,
+        library: {
+          ...state.library,
+          activeTab: action.payload,
+        },
+      };
+
+    case 'LIBRARY_SET_LEVEL':
+      return {
+        ...state,
+        library: {
+          ...state.library,
+          selectedLevel: action.payload,
+        },
+      };
+
+    case 'LIBRARY_SET_SEARCH':
+      return {
+        ...state,
+        library: {
+          ...state.library,
+          searchQuery: action.payload,
+        },
+      };
 
     // --- NAVIGATION & LESSONS LIST ---
     case 'TOGGLE_LESSONS_DRAWER':
