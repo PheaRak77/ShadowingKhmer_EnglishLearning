@@ -235,8 +235,8 @@ export const initialState = {
   notification: null,
   practiceMode: 'lesson', // 'lesson' | 'dictation' | 'vocabulary' | 'grammar'
   activeSentenceIndex: 1,
-  visibleKhmerMap: { 1: true, 2: true, 3: true, 4: true, 5: true, 6: true },
-  showAllKhmer: true,
+  visibleKhmerMap: {},
+  showAllKhmer: false,
   completedSentencesMap: {},
   sentenceSearchQuery: '',
   playbackRate: 1,
@@ -273,7 +273,32 @@ export const initialState = {
       }
     })(),
   },
-  playerSize: 'large',
+  playerSize: 'medium', // 'compact' | 'medium' | 'large'
+  shadowing: {
+    isPlaying: false,
+    currentTime: 0,
+    duration: 0,
+    repeatCount: 1, // 1 | 2 | 3 | 0 (0 = infinite loop)
+    currentRepeat: 1,
+    pauseMode: 'pause_to_speak', // 'pause_to_speak' | 'auto_continue' | 'manual_stop'
+    pauseExtraPercent: 50, // 0 | 25 | 50 | 75 | 100
+    isWaitingToSpeak: false,
+    speakCountdownRemaining: 0,
+    speakCountdownTotal: 0,
+    playWhileSpeaking: false,
+    endPaddingSec: 0, // 0 | 0.4 | 0.8 ("Last word cut?")
+    accent: 'US', // 'US' | 'UK'
+    showIPA: true,
+    showIntonation: true,
+    showIntonationHelp: false,
+    showSpotlightKhmer: true,
+    rightTab: 'transcript', // 'transcript' | 'same_lesson' | 'more_videos'
+    openMenu: null, // null | 'size' | 'speed' | 'repeat' | 'mode' | 'pausePct'
+    showYoutubeCreator: false,
+    sessionSeconds: 0,
+    isTimerRunning: true,
+    showShortcutsHint: false,
+  },
 };
 
 export function appReducer(state, action) {
@@ -1015,10 +1040,6 @@ export function appReducer(state, action) {
         { ...lesson, sentence_count: sentences.length },
         ...state.lessonsList.filter((l) => l.id !== lesson.id),
       ];
-      const autoKhmerMap = {};
-      (sentences || []).forEach((s) => {
-        autoKhmerMap[s.sentence_index] = true;
-      });
       return {
         ...state,
         creatingLesson: false,
@@ -1036,13 +1057,25 @@ export function appReducer(state, action) {
         },
         practiceMode: 'lesson',
         activeSentenceIndex: 1,
-        visibleKhmerMap: autoKhmerMap,
-        showAllKhmer: true,
+        visibleKhmerMap: {},
+        showAllKhmer: false,
         completedSentencesMap: {},
         sentenceSearchQuery: '',
         selectedWordPopup: null,
         vocabView: { ...state.vocabView, currentCardIndex: 0, isFlipped: false },
         dictation: { userInput: '', isChecked: false, accuracy: 0, showHint: false },
+        shadowing: {
+          ...state.shadowing,
+          isPlaying: false,
+          currentTime: 0,
+          currentRepeat: 1,
+          isWaitingToSpeak: false,
+          speakCountdownRemaining: 0,
+          speakCountdownTotal: 0,
+          showYoutubeCreator: false,
+          rightTab: 'transcript',
+          openMenu: null,
+        },
         notification: {
           type: 'success',
           message: `Lesson "${lesson.title}" ready with ${sentences.length} sentences!`,
@@ -1072,10 +1105,6 @@ export function appReducer(state, action) {
 
     case 'LOAD_LESSON_SUCCESS': {
       const { lesson, sentences, vocabulary, grammar_points } = action.payload;
-      const autoKhmerMap = {};
-      (sentences || []).forEach((s) => {
-        autoKhmerMap[s.sentence_index] = true;
-      });
       return {
         ...state,
         loadingLesson: false,
@@ -1092,12 +1121,24 @@ export function appReducer(state, action) {
             : {}),
         },
         activeSentenceIndex: 1,
-        visibleKhmerMap: autoKhmerMap,
-        showAllKhmer: true,
+        visibleKhmerMap: {},
+        showAllKhmer: false,
         completedSentencesMap: {},
         sentenceSearchQuery: '',
         selectedWordPopup: null,
         vocabView: { ...state.vocabView, currentCardIndex: 0, isFlipped: false },
+        shadowing: {
+          ...state.shadowing,
+          isPlaying: false,
+          currentTime: 0,
+          duration: 0,
+          currentRepeat: 1,
+          isWaitingToSpeak: false,
+          speakCountdownRemaining: 0,
+          speakCountdownTotal: 0,
+          rightTab: 'transcript',
+          openMenu: null,
+        },
       };
     }
 
@@ -1135,6 +1176,13 @@ export function appReducer(state, action) {
           isChecked: false,
           accuracy: 0,
           showHint: false,
+        },
+        shadowing: {
+          ...state.shadowing,
+          currentRepeat: 1,
+          isWaitingToSpeak: false,
+          speakCountdownRemaining: 0,
+          speakCountdownTotal: 0,
         },
       };
 
@@ -1354,7 +1402,140 @@ export function appReducer(state, action) {
     case 'TOGGLE_PLAYER_SIZE':
       return {
         ...state,
-        playerSize: state.playerSize === 'large' ? 'normal' : 'large',
+        playerSize:
+          state.playerSize === 'compact'
+            ? 'medium'
+            : state.playerSize === 'medium'
+            ? 'large'
+            : 'compact',
+      };
+
+    case 'SET_PLAYER_SIZE':
+      return {
+        ...state,
+        playerSize: action.payload,
+        shadowing: {
+          ...state.shadowing,
+          openMenu: null,
+        },
+      };
+
+    case 'MARK_SENTENCE_COMPLETED': {
+      const idx = action.payload;
+      if (state.completedSentencesMap[idx]) return state;
+      return {
+        ...state,
+        completedSentencesMap: {
+          ...state.completedSentencesMap,
+          [idx]: true,
+        },
+      };
+    }
+
+    // --- SHADOWING WORKSPACE CONTROLS ---
+    case 'SHADOWING_UPDATE':
+      return {
+        ...state,
+        shadowing: {
+          ...state.shadowing,
+          ...action.payload,
+        },
+      };
+
+    case 'SHADOWING_SET_PLAYBACK_STATUS': {
+      const { isPlaying, currentTime, duration } = action.payload;
+      const roundedTime = Math.round((currentTime || 0) * 5) / 5;
+      const roundedDur = Math.round((duration || 0));
+      if (
+        state.shadowing.isPlaying === isPlaying &&
+        state.shadowing.currentTime === roundedTime &&
+        (roundedDur === 0 || state.shadowing.duration === roundedDur)
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        shadowing: {
+          ...state.shadowing,
+          isPlaying,
+          currentTime: roundedTime,
+          duration: roundedDur > 0 ? roundedDur : state.shadowing.duration,
+        },
+      };
+    }
+
+    case 'SHADOWING_NEXT_REPEAT':
+      return {
+        ...state,
+        shadowing: {
+          ...state.shadowing,
+          currentRepeat: (state.shadowing.currentRepeat || 1) + 1,
+        },
+      };
+
+    case 'SHADOWING_START_SPEAK_PAUSE':
+      return {
+        ...state,
+        shadowing: {
+          ...state.shadowing,
+          isPlaying: false,
+          isWaitingToSpeak: true,
+          speakCountdownTotal: action.payload.total,
+          speakCountdownRemaining: action.payload.total,
+          currentRepeat: 1,
+        },
+      };
+
+    case 'SHADOWING_TICK_SPEAK_PAUSE': {
+      const nextRem = Math.max(
+        0,
+        Number(((state.shadowing.speakCountdownRemaining || 0) - 0.1).toFixed(1))
+      );
+      return {
+        ...state,
+        shadowing: {
+          ...state.shadowing,
+          speakCountdownRemaining: nextRem,
+        },
+      };
+    }
+
+    case 'SHADOWING_END_SPEAK_PAUSE':
+      return {
+        ...state,
+        shadowing: {
+          ...state.shadowing,
+          isWaitingToSpeak: false,
+          speakCountdownRemaining: 0,
+          speakCountdownTotal: 0,
+        },
+      };
+
+    case 'SHADOWING_TICK_TIMER':
+      return {
+        ...state,
+        shadowing: {
+          ...state.shadowing,
+          sessionSeconds: (state.shadowing.sessionSeconds || 0) + 1,
+        },
+      };
+
+    case 'SHADOWING_TOGGLE_TIMER':
+      return {
+        ...state,
+        shadowing: {
+          ...state.shadowing,
+          isTimerRunning: !state.shadowing.isTimerRunning,
+        },
+      };
+
+    case 'SHADOWING_RESET_TIMER':
+      return {
+        ...state,
+        shadowing: {
+          ...state.shadowing,
+          sessionSeconds: 0,
+        },
       };
 
     // --- STEP-BY-STEP GRAMMAR COURSE ---

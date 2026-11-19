@@ -36,12 +36,19 @@ import {
   EyeOff,
   Award,
   Lock,
+  ArrowLeft,
+  SlidersHorizontal,
+  Timer,
+  Plus,
 } from 'lucide-react';
 import { useAppContext, DEMO_LESSON_DATA } from './reducer/appReducer.js';
 import AuthForm, { GoogleIcon } from './components/AuthForm.jsx';
 import AdminDashboard from './components/AdminDashboard.jsx';
 import AllLessonsLibrary from './components/AllLessonsLibrary.jsx';
 import GrammarCourse from './components/GrammarCourse.jsx';
+import ShadowingControls from './components/ShadowingControls.jsx';
+import ShadowingSpotlightCard from './components/ShadowingSpotlightCard.jsx';
+import ShadowingRightPanel from './components/ShadowingRightPanel.jsx';
 import Footer from './components/Footer.jsx';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -70,62 +77,76 @@ function extractYouTubeVideoId(url) {
   return /^[a-zA-Z0-9_-]{11}$/.test(url.trim()) ? url.trim() : null;
 }
 
-// Helper: Select the most natural human-sounding English voice on the user's device
-let cachedNaturalVoice = null;
+// Helper: Select the most natural human-sounding English voice on the user's device (US or UK)
+const cachedVoicesByAccent = { US: null, UK: null };
 
-function getBestHumanEnglishVoice() {
+function getBestHumanEnglishVoice(accent = 'US') {
   if (!('speechSynthesis' in window)) return null;
   const voices = window.speechSynthesis.getVoices();
   if (!voices || voices.length === 0) return null;
 
-  const preferredOrder = [
-    'Microsoft Aria Online (Natural)',
-    'Microsoft Jenny Online (Natural)',
-    'Microsoft Guy Online (Natural)',
-    'Google US English',
-    'Google UK English Female',
-    'Google UK English Male',
-    'Samantha',
-    'Ava',
-    'Allison',
-    'Daniel',
-    'Alex',
-  ];
+  const preferredOrder =
+    accent === 'UK'
+      ? [
+          'Microsoft Libby Online (Natural)',
+          'Microsoft Sonia Online (Natural)',
+          'Microsoft Ryan Online (Natural)',
+          'Google UK English Female',
+          'Google UK English Male',
+          'Daniel',
+          'Serena',
+          'Martha',
+        ]
+      : [
+          'Microsoft Aria Online (Natural)',
+          'Microsoft Jenny Online (Natural)',
+          'Microsoft Guy Online (Natural)',
+          'Google US English',
+          'Samantha',
+          'Ava',
+          'Allison',
+          'Alex',
+        ];
 
   for (const name of preferredOrder) {
     const match = voices.find((v) => v.name.includes(name));
     if (match) return match;
   }
 
-  // Fallback to any Neural / Natural / Online English voice
+  const targetLang = accent === 'UK' ? 'en-GB' : 'en-US';
   const naturalVoice = voices.find(
     (v) =>
-      v.lang.startsWith('en') &&
+      v.lang === targetLang &&
       (v.name.includes('Natural') || v.name.includes('Neural') || v.name.includes('Google'))
   );
   if (naturalVoice) return naturalVoice;
 
-  return voices.find((v) => v.lang === 'en-US') || voices.find((v) => v.lang.startsWith('en')) || null;
+  return (
+    voices.find((v) => v.lang === targetLang) ||
+    voices.find((v) => v.lang.startsWith('en')) ||
+    null
+  );
 }
 
 if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
   window.speechSynthesis.onvoiceschanged = () => {
-    cachedNaturalVoice = getBestHumanEnglishVoice();
+    cachedVoicesByAccent.US = getBestHumanEnglishVoice('US');
+    cachedVoicesByAccent.UK = getBestHumanEnglishVoice('UK');
   };
 }
 
 // Helper: Speak English text or word with natural human-like pacing & voice
-function speakEnglish(text, rate = 0.95) {
+function speakEnglish(text, rate = 0.95, accent = 'US') {
   if (!('speechSynthesis' in window) || !text) return;
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
-  const voice = cachedNaturalVoice || getBestHumanEnglishVoice();
+  const voice = cachedVoicesByAccent[accent] || getBestHumanEnglishVoice(accent);
   if (voice) {
-    cachedNaturalVoice = voice;
+    cachedVoicesByAccent[accent] = voice;
     utterance.voice = voice;
     utterance.lang = voice.lang;
   } else {
-    utterance.lang = 'en-US';
+    utterance.lang = accent === 'UK' ? 'en-GB' : 'en-US';
   }
   utterance.rate = rate;
   utterance.pitch = 1.02;
@@ -133,12 +154,12 @@ function speakEnglish(text, rate = 0.95) {
   window.speechSynthesis.speak(utterance);
 }
 
-// Helper: Format seconds into M:SS
-function formatTime(sec) {
+// Helper: Format seconds into MM:SS
+function formatSessionClock(sec) {
   const s = Math.max(0, Math.floor(sec || 0));
   const mins = Math.floor(s / 60);
   const rem = s % 60;
-  return `${mins}:${rem < 10 ? '0' : ''}${rem}`;
+  return `${mins < 10 ? '0' : ''}${mins}:${rem < 10 ? '0' : ''}${rem}`;
 }
 
 export default function App() {
@@ -146,6 +167,7 @@ export default function App() {
   const playerRef = useRef(null);
   const syncTimerRef = useRef(null);
   const activeSentenceRef = useRef(null);
+  const shadowingRef = useRef(null);
 
   const {
     auth,
@@ -184,7 +206,17 @@ export default function App() {
     vocabView,
     grammarFilter,
     playerSize,
+    shadowing,
   } = state;
+
+  shadowingRef.current = {
+    sentences,
+    activeSentenceIndex,
+    shadowing,
+    practiceMode,
+    activeScreen,
+    isAuthModalOpen,
+  };
 
   // Pre-warm Render backend, fetch GOOGLE_CLIENT_ID & public "All Lessons" library on initial page load
   useEffect(() => {
@@ -336,50 +368,238 @@ export default function App() {
     return () => clearInterval(timer);
   }, [creatingLesson, createProgress, dispatch]);
 
-  // Sync activeSentenceIndex with YouTube playback time & support Sentence Loop mode
+  // Sync YouTube playback with Shadowing Engine (Repeat x1/x2/x3/∞, Pause-to-Speak, Simultaneous Play)
   useEffect(() => {
     syncTimerRef.current = setInterval(() => {
       if (
-        playerRef.current &&
-        typeof playerRef.current.getCurrentTime === 'function' &&
-        typeof playerRef.current.getPlayerState === 'function'
+        !playerRef.current ||
+        typeof playerRef.current.getCurrentTime !== 'function' ||
+        typeof playerRef.current.getPlayerState !== 'function'
       ) {
-        const playerState = playerRef.current.getPlayerState();
-        if (playerState === 1) {
-          const currentTime = playerRef.current.getCurrentTime();
-          const currentActiveObj = sentences.find(
-            (s) => s.sentence_index === activeSentenceIndex
-          );
+        return;
+      }
 
-          // If Sentence Loop Mode is enabled, loop current sentence when reaching end_time
-          if (isLoopingSentence && currentActiveObj) {
-            if (currentTime >= currentActiveObj.end_time) {
-              playerRef.current.seekTo(currentActiveObj.start_time, true);
-              playerRef.current.playVideo();
-              return;
-            }
+      const snap = shadowingRef.current;
+      if (!snap || snap.activeScreen !== 'workspace') return;
+
+      const playerState = playerRef.current.getPlayerState();
+      const isPlayingNow = playerState === 1;
+      const currentTime = playerRef.current.getCurrentTime() || 0;
+      const duration =
+        typeof playerRef.current.getDuration === 'function'
+          ? playerRef.current.getDuration() || 0
+          : 0;
+
+      dispatch({
+        type: 'SHADOWING_SET_PLAYBACK_STATUS',
+        payload: { isPlaying: isPlayingNow, currentTime, duration },
+      });
+
+      if (!isPlayingNow || snap.shadowing.isWaitingToSpeak) return;
+
+      const {
+        sentences: curSentences,
+        activeSentenceIndex: curIdx,
+        shadowing: sh,
+        practiceMode: curMode,
+      } = snap;
+      const currentActiveObj = curSentences.find((s) => s.sentence_index === curIdx);
+
+      // Simultaneous shadowing or non-shadowing modes: smoothly follow video time
+      if (
+        curMode !== 'lesson' ||
+        sh.playWhileSpeaking ||
+        (sh.pauseMode === 'auto_continue' && sh.repeatCount === 1)
+      ) {
+        const matchedSentence = curSentences.find(
+          (s) => currentTime >= s.start_time && currentTime <= s.end_time
+        );
+        if (matchedSentence && matchedSentence.sentence_index !== curIdx) {
+          if (curIdx > 0) {
+            dispatch({ type: 'MARK_SENTENCE_COMPLETED', payload: curIdx });
           }
+          dispatch({
+            type: 'SET_ACTIVE_SENTENCE',
+            payload: matchedSentence.sentence_index,
+          });
+        }
+        return;
+      }
 
-          const matchedSentence = sentences.find(
-            (s) => currentTime >= s.start_time && currentTime <= s.end_time
+      if (!currentActiveObj) return;
+
+      const effectiveEnd = (currentActiveObj.end_time || 0) + (sh.endPaddingSec || 0);
+      if (currentTime >= effectiveEnd) {
+        // Infinite loop or remaining repeats on this sentence
+        if (sh.repeatCount === 0 || sh.currentRepeat < sh.repeatCount) {
+          playerRef.current.seekTo(currentActiveObj.start_time, true);
+          playerRef.current.playVideo();
+          if (sh.repeatCount > 0) {
+            dispatch({ type: 'SHADOWING_NEXT_REPEAT' });
+          }
+          return;
+        }
+
+        // Completed all repeats for this sentence
+        dispatch({ type: 'MARK_SENTENCE_COMPLETED', payload: currentActiveObj.sentence_index });
+
+        if (sh.pauseMode === 'pause_to_speak') {
+          playerRef.current.pauseVideo();
+          const sentLen = Math.max(
+            1.2,
+            (currentActiveObj.end_time || 0) - (currentActiveObj.start_time || 0)
           );
-          if (
-            matchedSentence &&
-            matchedSentence.sentence_index !== activeSentenceIndex
-          ) {
-            dispatch({
-              type: 'SET_ACTIVE_SENTENCE',
-              payload: matchedSentence.sentence_index,
-            });
+          const pauseSec = Number((sentLen * (1 + (sh.pauseExtraPercent || 0) / 100)).toFixed(1));
+          dispatch({
+            type: 'SHADOWING_START_SPEAK_PAUSE',
+            payload: { total: pauseSec },
+          });
+        } else if (sh.pauseMode === 'manual_stop') {
+          playerRef.current.pauseVideo();
+          dispatch({ type: 'SHADOWING_UPDATE', payload: { currentRepeat: 1, isPlaying: false } });
+        } else {
+          // auto_continue after repeatCount > 1
+          const nextSentence = curSentences.find((s) => s.sentence_index === curIdx + 1);
+          if (nextSentence) {
+            dispatch({ type: 'SET_ACTIVE_SENTENCE', payload: nextSentence.sentence_index });
+            playerRef.current.seekTo(nextSentence.start_time, true);
+            playerRef.current.playVideo();
+          } else {
+            playerRef.current.pauseVideo();
           }
         }
       }
-    }, 250);
+    }, 150);
 
     return () => {
       if (syncTimerRef.current) clearInterval(syncTimerRef.current);
     };
-  }, [sentences, activeSentenceIndex, isLoopingSentence, dispatch]);
+  }, [dispatch]);
+
+  // Countdown engine for "Pause to speak" speaking window
+  useEffect(() => {
+    if (!shadowing.isWaitingToSpeak) return;
+
+    if (shadowing.speakCountdownRemaining <= 0.05) {
+      dispatch({ type: 'SHADOWING_END_SPEAK_PAUSE' });
+      const nextIdx = activeSentenceIndex + 1;
+      const nextSentence = sentences.find((s) => s.sentence_index === nextIdx);
+      if (nextSentence && playerRef.current && typeof playerRef.current.seekTo === 'function') {
+        dispatch({ type: 'SET_ACTIVE_SENTENCE', payload: nextSentence.sentence_index });
+        playerRef.current.seekTo(nextSentence.start_time, true);
+        playerRef.current.playVideo();
+      }
+      return;
+    }
+
+    const countdownId = setTimeout(() => {
+      dispatch({ type: 'SHADOWING_TICK_SPEAK_PAUSE' });
+    }, 100);
+
+    return () => clearTimeout(countdownId);
+  }, [
+    shadowing.isWaitingToSpeak,
+    shadowing.speakCountdownRemaining,
+    activeSentenceIndex,
+    sentences,
+    dispatch,
+  ]);
+
+  // Live Practice Session Timer (top-right MM:SS pill in workspace)
+  useEffect(() => {
+    if (activeScreen !== 'workspace' || !shadowing.isTimerRunning) return;
+    const timerId = setInterval(() => {
+      dispatch({ type: 'SHADOWING_TICK_TIMER' });
+    }, 1000);
+    return () => clearInterval(timerId);
+  }, [activeScreen, shadowing.isTimerRunning, dispatch]);
+
+  // Keyboard shortcuts for Shadowing mode (Space = Play/Pause, R = Replay, ←/→ = Prev/Next)
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      const snap = shadowingRef.current;
+      if (
+        !snap ||
+        snap.activeScreen !== 'workspace' ||
+        snap.practiceMode !== 'lesson' ||
+        snap.isAuthModalOpen
+      ) {
+        return;
+      }
+
+      const tag = document.activeElement?.tagName;
+      if (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        document.activeElement?.isContentEditable
+      ) {
+        return;
+      }
+
+      const { sentences: curSentences, activeSentenceIndex: curIdx, shadowing: sh } = snap;
+      const activeObj = curSentences.find((s) => s.sentence_index === curIdx);
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (sh.isWaitingToSpeak) {
+          dispatch({ type: 'SHADOWING_END_SPEAK_PAUSE' });
+          if (activeObj && playerRef.current?.seekTo) {
+            playerRef.current.seekTo(activeObj.start_time, true);
+            playerRef.current.playVideo();
+          }
+          return;
+        }
+        if (playerRef.current?.getPlayerState) {
+          const st = playerRef.current.getPlayerState();
+          if (st === 1) {
+            playerRef.current.pauseVideo();
+          } else {
+            if (activeObj) {
+              const ct = playerRef.current.getCurrentTime?.() || 0;
+              if (ct < activeObj.start_time - 0.5 || ct >= activeObj.end_time) {
+                playerRef.current.seekTo(activeObj.start_time, true);
+              }
+            }
+            playerRef.current.playVideo();
+          }
+        }
+      } else if (e.code === 'KeyR' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        if (activeObj && playerRef.current?.seekTo) {
+          dispatch({ type: 'SHADOWING_END_SPEAK_PAUSE' });
+          dispatch({ type: 'SHADOWING_UPDATE', payload: { currentRepeat: 1 } });
+          playerRef.current.seekTo(activeObj.start_time, true);
+          playerRef.current.playVideo();
+        }
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault();
+        const prevObj = curSentences.find((s) => s.sentence_index === Math.max(1, curIdx - 1));
+        if (prevObj) {
+          dispatch({ type: 'SET_ACTIVE_SENTENCE', payload: prevObj.sentence_index });
+          if (playerRef.current?.seekTo) {
+            playerRef.current.seekTo(prevObj.start_time, true);
+            playerRef.current.playVideo();
+          }
+        }
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault();
+        const nextObj = curSentences.find(
+          (s) => s.sentence_index === Math.min(curSentences.length, curIdx + 1)
+        );
+        if (nextObj) {
+          dispatch({ type: 'SET_ACTIVE_SENTENCE', payload: nextObj.sentence_index });
+          if (playerRef.current?.seekTo) {
+            playerRef.current.seekTo(nextObj.start_time, true);
+            playerRef.current.playVideo();
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [dispatch]);
 
   const loadLessonById = async (lessonId, tokenOverride, lessonTitle = '') => {
     playerRef.current = null;
@@ -699,9 +919,62 @@ export default function App() {
   const handleSentenceClick = (sentence) => {
     if (!sentence) return;
     dispatch({ type: 'SET_ACTIVE_SENTENCE', payload: sentence.sentence_index });
+    dispatch({ type: 'SHADOWING_UPDATE', payload: { openMenu: null } });
     if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
       playerRef.current.seekTo(sentence.start_time, true);
       playerRef.current.playVideo();
+    }
+  };
+
+  const handleReplayActiveSentence = () => {
+    const activeObj =
+      sentences.find((s) => s.sentence_index === activeSentenceIndex) || sentences[0];
+    if (!activeObj) return;
+    dispatch({ type: 'SHADOWING_END_SPEAK_PAUSE' });
+    dispatch({ type: 'SHADOWING_UPDATE', payload: { currentRepeat: 1, openMenu: null } });
+    if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
+      playerRef.current.seekTo(activeObj.start_time, true);
+      playerRef.current.playVideo();
+    }
+  };
+
+  const handleTogglePlayPause = () => {
+    const activeObj =
+      sentences.find((s) => s.sentence_index === activeSentenceIndex) || sentences[0];
+    dispatch({ type: 'SHADOWING_UPDATE', payload: { openMenu: null } });
+
+    if (shadowing.isWaitingToSpeak) {
+      handleReplayActiveSentence();
+      return;
+    }
+
+    if (!playerRef.current || typeof playerRef.current.getPlayerState !== 'function') {
+      return;
+    }
+
+    const playerState = playerRef.current.getPlayerState();
+    if (playerState === 1) {
+      playerRef.current.pauseVideo();
+      dispatch({ type: 'SHADOWING_UPDATE', payload: { isPlaying: false } });
+    } else {
+      if (activeObj && typeof playerRef.current.getCurrentTime === 'function') {
+        const ct = playerRef.current.getCurrentTime() || 0;
+        const effectiveEnd = (activeObj.end_time || 0) + (shadowing.endPaddingSec || 0);
+        if (ct < activeObj.start_time - 0.5 || ct >= effectiveEnd) {
+          playerRef.current.seekTo(activeObj.start_time, true);
+        }
+      }
+      playerRef.current.playVideo();
+      dispatch({ type: 'SHADOWING_UPDATE', payload: { isPlaying: true } });
+    }
+  };
+
+  const handleSkipSpeakPause = () => {
+    dispatch({ type: 'SHADOWING_END_SPEAK_PAUSE' });
+    const nextIdx = Math.min(sentences.length, activeSentenceIndex + 1);
+    const nextSentence = sentences.find((s) => s.sentence_index === nextIdx);
+    if (nextSentence) {
+      handleSentenceClick(nextSentence);
     }
   };
 
@@ -728,7 +1001,7 @@ export default function App() {
     const cleanWord = rawWord.replace(/[^a-zA-Z0-9'-]/g, '').trim();
     if (!cleanWord) return;
 
-    speakEnglish(cleanWord, playbackRate);
+    speakEnglish(cleanWord, playbackRate, shadowing.accent);
 
     const existingMatch = vocabulary.find(
       (v) => v.word.toLowerCase() === cleanWord.toLowerCase()
@@ -1578,546 +1851,434 @@ export default function App() {
             <GrammarCourse onSpeak={(text) => speakEnglish(text, playbackRate)} />
           ) : (
             <>
-            {/* Quick Back to All Lessons Breadcrumb */}
-            <div className="flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'library' })}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-[#2563EB] transition-colors cursor-pointer"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                <span>Back to All Lessons & Study History</span>
-              </button>
-            </div>
-
-            {/* Top YouTube Lesson Creator Bar */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-3.5 sm:p-4 shadow-sm">
-              <form
-                onSubmit={handleCreateLesson}
-                className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3"
-              >
-                <div className="relative flex-1">
-                  <Youtube className="w-5 h-5 text-rose-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Paste any YouTube video or Short URL (supports up to 4-minute videos)..."
-                    value={videoUrlInput}
-                    onChange={(e) =>
-                      dispatch({ type: 'SET_VIDEO_URL_INPUT', payload: e.target.value })
-                    }
-                    disabled={creatingLesson}
-                    className="w-full pl-11 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs sm:text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-[#2563EB] transition-all"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={!isGuest && (creatingLesson || !videoUrlInput.trim())}
-                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-70 text-white text-xs sm:text-sm font-semibold shadow-sm transition-all cursor-pointer shrink-0"
-                >
-                  {creatingLesson ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Processing {createProgress}%</span>
-                    </>
-                  ) : isGuest ? (
-                    <>
-                      <Lock className="w-4 h-4" />
-                      <span>Sign in to Create</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      <span>Create Lesson</span>
-                    </>
-                  )}
-                </button>
-              </form>
-
-              {!isGuest && auth.user?.role === 'student' && studentQuota && !studentQuota.isUnlimited && (
-                <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs px-1">
-                  <span
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-semibold border ${
-                      studentQuota.remaining > 0
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : 'bg-amber-50 text-amber-800 border-amber-200'
-                    }`}
-                  >
-                    YouTube Link Quota: {studentQuota.remaining} / {studentQuota.maxLessons} remaining
-                    <span className="font-normal text-slate-500">
-                      ({studentQuota.maxLessons} video{studentQuota.maxLessons === 1 ? '' : 's'} per{' '}
-                      {studentQuota.windowDays} day{studentQuota.windowDays === 1 ? '' : 's'})
-                    </span>
-                  </span>
-                  {studentQuota.remaining === 0 && studentQuota.nextResetAt && (
-                    <span className="text-[11px] font-medium text-amber-700">
-                      Next link available:{' '}
-                      {new Date(studentQuota.nextResetAt).toLocaleString()}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {/* Animated 3-Step Loading Percentage Card */}
-              {creatingLesson && (
-                <div className="mt-4 p-4 sm:p-5 rounded-2xl border border-blue-200/80 bg-gradient-to-br from-blue-50/80 via-white to-indigo-50/70 shadow-sm space-y-3.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2.5">
-                      <span className="relative flex h-3 w-3">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-3 w-3 bg-[#2563EB]"></span>
-                      </span>
-                      <span className="text-xs sm:text-sm font-bold text-slate-800">
-                        {createProgress < 35
-                          ? 'Step 1/3: Connecting to YouTube video...'
-                          : createProgress < 75
-                          ? 'Step 2/3: Processing captions & Khmer translation...'
-                          : 'Step 3/3: Preparing your interactive lesson...'}
-                      </span>
-                    </div>
-                    <span className="text-base sm:text-lg font-extrabold text-[#2563EB] tabular-nums">
-                      {createProgress}%
-                    </span>
-                  </div>
-
-                  {/* Animated Shimmer Progress Bar */}
-                  <div className="relative w-full h-3 bg-slate-200/70 rounded-full overflow-hidden">
-                    <div
-                      className="relative h-full bg-gradient-to-r from-[#2563EB] via-indigo-500 to-purple-500 rounded-full transition-all duration-500 ease-out overflow-hidden"
-                      style={{ width: `${createProgress}%` }}
-                    >
-                      <div className="absolute inset-0 w-1/2 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-shimmer" />
-                    </div>
-                  </div>
-
-                  {/* 3 Clean Animated Steps: 1. Video | 2. Processing | 3. Prepare Lesson */}
-                  <div className="grid grid-cols-3 gap-2 sm:gap-3 pt-0.5">
-                    {[
-                      { label: '1. Video', min: 0, doneAt: 35 },
-                      { label: '2. Processing', min: 35, doneAt: 75 },
-                      { label: '3. Prepare Lesson', min: 75, doneAt: 100 },
-                    ].map((step) => {
-                      const done = createProgress >= step.doneAt;
-                      const active = createProgress >= step.min && !done;
-                      return (
-                        <div
-                          key={step.label}
-                          className={`px-2.5 sm:px-3 py-2 rounded-xl text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all duration-300 ${
-                            done
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm'
-                              : active
-                              ? 'bg-blue-50 text-[#2563EB] border-blue-300 shadow-sm scale-[1.02]'
-                              : 'bg-white/80 text-slate-400 border-slate-200/70'
-                          }`}
-                        >
-                          {done ? (
-                            <Check className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
-                          ) : active ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0 text-[#2563EB]" />
-                          ) : (
-                            <span className="w-2 h-2 rounded-full bg-slate-300 shrink-0" />
-                          )}
-                          <span className="truncate">{step.label}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {notification && (
-                <div
-                  className={`mt-3 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-medium flex items-center justify-between gap-3 ${
-                    notification.type === 'error'
-                      ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                      : notification.type === 'info'
-                      ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                      : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                  }`}
-                >
-                  <span>{notification.message}</span>
-                  <button
-                    type="button"
-                    onClick={() => dispatch({ type: 'SET_NOTIFICATION', payload: null })}
-                    className="text-current opacity-70 hover:opacity-100 shrink-0"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Lesson Title & Mastery Progress Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div>
-                <h1 className="text-lg sm:text-xl lg:text-2xl font-extrabold text-slate-900 tracking-tight leading-snug">
-                  Shadowing Practice: {currentLesson?.title || 'English Video Lesson'}
-                </h1>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Click any sentence to jump video • Click any word to pronounce & save
-                </p>
-              </div>
-
-              {/* Mastery Progress Pill */}
-              <div className="flex items-center gap-3 bg-white px-4 py-2.5 rounded-2xl border border-slate-200 shadow-sm shrink-0">
-                <div className="text-xs font-bold text-slate-700">
-                  Practiced: <span className="text-[#2563EB]">{completedCount}</span> /{' '}
-                  {sentences.length}
-                </div>
-                <div className="w-24 sm:w-28 h-2 bg-slate-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-[#2563EB] transition-all duration-300"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-                <span className="text-xs font-extrabold text-[#2563EB]">{progressPercent}%</span>
-              </div>
-            </div>
-
             {/* =========================================================
-                RESPONSIVE SPLIT-SCREEN WORKSPACE
+                IMAGE-1 STYLE WORKSPACE SUB-HEADER BAR
+                (Back + Lesson Title | Mode Segmented Pill | Live Timer)
             ========================================================= */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 items-start">
-              {/* LEFT COLUMN: Video Player + Smart Shadowing Controls + Mode Cards */}
-              <div className="lg:col-span-7 space-y-4 sm:space-y-5">
-                {/* Video Player Container */}
-                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                  <div className="relative bg-black">
+            <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3">
+              {/* Left: Back Arrow + Paste YouTube Link Toggle + Lesson Title */}
+              <div className="flex items-center gap-2 min-w-0 flex-1 sm:flex-initial sm:max-w-[36%]">
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'library' })}
+                  className="w-8 h-8 rounded-full bg-white border border-slate-200/90 hover:border-blue-300 hover:bg-blue-50 text-slate-600 hover:text-[#2563EB] flex items-center justify-center shadow-2xs transition-all cursor-pointer shrink-0"
+                  title="Back to All Lessons"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    dispatch({
+                      type: 'SHADOWING_UPDATE',
+                      payload: { showYoutubeCreator: !shadowing.showYoutubeCreator },
+                    })
+                  }
+                  className={`h-8 px-2.5 rounded-full border text-xs font-semibold inline-flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer shrink-0 ${
+                    shadowing.showYoutubeCreator || creatingLesson
+                      ? 'bg-rose-50 border-rose-200 text-rose-600'
+                      : 'bg-white border-slate-200/90 hover:border-blue-300 text-slate-600 hover:text-[#2563EB]'
+                  }`}
+                  title="Create a lesson from a YouTube URL"
+                >
+                  <Youtube className="w-3.5 h-3.5 text-rose-500" />
+                  <Plus className="w-3 h-3 -ml-0.5" />
+                </button>
+
+                <h1
+                  className="text-xs sm:text-sm font-bold text-slate-800 truncate"
+                  title={currentLesson?.title || 'English Video Lesson'}
+                >
+                  {currentLesson?.title || 'English Video Lesson'}
+                </h1>
+              </div>
+
+              {/* Center: Segmented Practice Mode Pill Bar (Matches Image 1) */}
+              <div className="order-3 sm:order-2 w-full sm:w-auto flex justify-center">
+                <div className="inline-flex items-center gap-0.5 p-1 rounded-full bg-white border border-slate-200/90 shadow-xs overflow-x-auto max-w-full">
+                  {[
+                    { id: 'lesson', label: 'Shadowing' },
+                    { id: 'dictation', label: 'Dictation' },
+                    { id: 'vocabulary', label: 'Vocabulary' },
+                    { id: 'grammar', label: 'Grammar' },
+                  ].map((tab) => {
+                    const isActive = practiceMode === tab.id;
+                    const isLocked = isGuest && tab.id !== 'lesson';
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => handleSelectPracticeMode(tab.id)}
+                        className={`px-3.5 sm:px-4 py-1.5 rounded-full text-xs font-semibold inline-flex items-center gap-1 transition-all whitespace-nowrap cursor-pointer ${
+                          isActive
+                            ? 'bg-[#2563EB] text-white shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
+                        }`}
+                      >
+                        <span>{tab.label}</span>
+                        {isLocked && <Lock className="w-2.5 h-2.5 opacity-60" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Right: Live Session Timer Pill (Matches Image 1 "⏱ 02:55") */}
+              <div className="order-2 sm:order-3 flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'SHADOWING_TOGGLE_TIMER' })}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border text-xs font-bold tabular-nums shadow-2xs transition-all cursor-pointer ${
+                    shadowing.isTimerRunning
+                      ? 'border-slate-200/90 text-slate-800 hover:border-blue-300'
+                      : 'border-amber-200 bg-amber-50/70 text-amber-800'
+                  }`}
+                  title={
+                    shadowing.isTimerRunning
+                      ? 'Practice timer running (click to pause)'
+                      : 'Practice timer paused (click to resume)'
+                  }
+                >
+                  <Timer
+                    className={`w-3.5 h-3.5 ${
+                      shadowing.isTimerRunning ? 'text-[#2563EB]' : 'text-amber-600'
+                    }`}
+                  />
+                  <span>{formatSessionClock(shadowing.sessionSeconds)}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Collapsible YouTube Link Creator Bar (Opens on "+ YouTube" click or while creating) */}
+            {(shadowing.showYoutubeCreator || creatingLesson) && (
+              <div className="bg-white rounded-2xl border border-slate-200 p-3.5 sm:p-4 shadow-sm animate-fade-in-up">
+                <div className="flex items-center justify-between gap-2 mb-2.5">
+                  <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <Youtube className="w-4 h-4 text-rose-500" />
+                    <span>Create Custom Lesson from YouTube Link (up to 4 min)</span>
+                  </span>
+                  {!creatingLesson && (
                     <button
                       type="button"
-                      onClick={() => dispatch({ type: 'TOGGLE_PLAYER_SIZE' })}
-                      className="hidden sm:inline-flex absolute top-3 right-3 z-10 items-center gap-1.5 px-3 py-1 rounded-full bg-white/90 hover:bg-white text-slate-800 text-xs font-semibold shadow-sm transition-all cursor-pointer"
+                      onClick={() =>
+                        dispatch({
+                          type: 'SHADOWING_UPDATE',
+                          payload: { showYoutubeCreator: false },
+                        })
+                      }
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
                     >
-                      <span>{playerSize === 'large' ? 'Large' : 'Compact'}</span>
-                      <ChevronDown className="w-3.5 h-3.5" />
+                      <X className="w-4 h-4" />
                     </button>
+                  )}
+                </div>
 
-                    <div
-                      className={`w-full ${
-                        playerSize === 'large' ? 'aspect-video' : 'aspect-video sm:h-72'
+                <form
+                  onSubmit={handleCreateLesson}
+                  className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3"
+                >
+                  <div className="relative flex-1">
+                    <Youtube className="w-5 h-5 text-rose-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Paste any YouTube video or Short URL (supports up to 4-minute videos)..."
+                      value={videoUrlInput}
+                      onChange={(e) =>
+                        dispatch({ type: 'SET_VIDEO_URL_INPUT', payload: e.target.value })
+                      }
+                      disabled={creatingLesson}
+                      className="w-full pl-11 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs sm:text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-[#2563EB] transition-all"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={!isGuest && (creatingLesson || !videoUrlInput.trim())}
+                    className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-70 text-white text-xs sm:text-sm font-semibold shadow-sm transition-all cursor-pointer shrink-0"
+                  >
+                    {creatingLesson ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Processing {createProgress}%</span>
+                      </>
+                    ) : isGuest ? (
+                      <>
+                        <Lock className="w-4 h-4" />
+                        <span>Sign in to Create</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        <span>Create Lesson</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+
+                {!isGuest && auth.user?.role === 'student' && studentQuota && !studentQuota.isUnlimited && (
+                  <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs px-1">
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-semibold border ${
+                        studentQuota.remaining > 0
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-amber-50 text-amber-800 border-amber-200'
                       }`}
                     >
-                      <YouTube
-                        key={`${currentLesson?.id || 0}-${currentLesson?.video_id || 'eIho2S0ZahI'}`}
-                        videoId={currentLesson?.video_id || 'eIho2S0ZahI'}
-                        className="w-full h-full"
-                        iframeClassName="w-full h-full"
-                        opts={{
-                          width: '100%',
-                          height: '100%',
-                          playerVars: {
-                            autoplay: 0,
-                            modestbranding: 1,
-                            rel: 0,
-                            playsinline: 1,
-                          },
-                        }}
-                        onReady={(event) => {
-                          playerRef.current = event.target;
-                        }}
-                      />
-                    </div>
+                      YouTube Link Quota: {studentQuota.remaining} / {studentQuota.maxLessons} remaining
+                      <span className="font-normal text-slate-500">
+                        ({studentQuota.maxLessons} video{studentQuota.maxLessons === 1 ? '' : 's'} per{' '}
+                        {studentQuota.windowDays} day{studentQuota.windowDays === 1 ? '' : 's'})
+                      </span>
+                    </span>
+                    {studentQuota.remaining === 0 && studentQuota.nextResetAt && (
+                      <span className="text-[11px] font-medium text-amber-700">
+                        Next link available:{' '}
+                        {new Date(studentQuota.nextResetAt).toLocaleString()}
+                      </span>
+                    )}
                   </div>
+                )}
 
-                  {/* NEW FEATURE: Smart Shadowing Control Bar (Prev / Loop / Next / Speed) */}
-                  <div className="p-3 sm:px-4 bg-white border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
-                    {/* Sentence Step Controls */}
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => handleJumpRelativeSentence(-1)}
-                        disabled={activeSentenceIndex <= 1}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 disabled:opacity-40 text-xs font-semibold text-slate-700 cursor-pointer"
-                        title="Previous sentence"
-                      >
-                        <SkipBack className="w-3.5 h-3.5" />
-                        <span className="hidden xs:inline">Prev</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleSentenceClick(
-                            sentences.find((s) => s.sentence_index === activeSentenceIndex)
-                          )
-                        }
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-[#2563EB] text-xs font-bold cursor-pointer"
-                      >
-                        <Play className="w-3.5 h-3.5 fill-current" />
-                        <span>Replay #{activeSentenceIndex}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleJumpRelativeSentence(1)}
-                        disabled={activeSentenceIndex >= sentences.length}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 disabled:opacity-40 text-xs font-semibold text-slate-700 cursor-pointer"
-                        title="Next sentence"
-                      >
-                        <span className="hidden xs:inline">Next</span>
-                        <SkipForward className="w-3.5 h-3.5" />
-                      </button>
+                {/* Animated 3-Step Loading Percentage Card */}
+                {creatingLesson && (
+                  <div className="mt-4 p-4 sm:p-5 rounded-2xl border border-blue-200/80 bg-gradient-to-br from-blue-50/80 via-white to-indigo-50/70 shadow-sm space-y-3.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <span className="relative flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-[#2563EB]"></span>
+                        </span>
+                        <span className="text-xs sm:text-sm font-bold text-slate-800">
+                          {createProgress < 35
+                            ? 'Step 1/3: Connecting to YouTube video...'
+                            : createProgress < 75
+                            ? 'Step 2/3: Processing captions & Khmer translation...'
+                            : 'Step 3/3: Preparing your interactive lesson...'}
+                        </span>
+                      </div>
+                      <span className="text-base sm:text-lg font-extrabold text-[#2563EB] tabular-nums">
+                        {createProgress}%
+                      </span>
                     </div>
 
-                    {/* Loop Toggle & Playback Speed */}
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => dispatch({ type: 'TOGGLE_LOOP_SENTENCE' })}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                          isLoopingSentence
-                            ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
-                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                        }`}
-                        title="Automatically repeat current sentence in a loop"
+                    <div className="relative w-full h-3 bg-slate-200/70 rounded-full overflow-hidden">
+                      <div
+                        className="relative h-full bg-gradient-to-r from-[#2563EB] via-indigo-500 to-purple-500 rounded-full transition-all duration-500 ease-out overflow-hidden"
+                        style={{ width: `${createProgress}%` }}
                       >
-                        <Repeat className="w-3.5 h-3.5" />
-                        <span>{isLoopingSentence ? 'Looping ON' : 'Loop'}</span>
-                      </button>
+                        <div className="absolute inset-0 w-1/2 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-shimmer" />
+                      </div>
+                    </div>
 
-                      {/* Speed Buttons: 0.75x, 1x, 1.25x */}
-                      <div className="inline-flex items-center rounded-xl bg-slate-100 p-0.5 border border-slate-200/80">
-                        {[0.75, 1, 1.25].map((rate) => (
-                          <button
-                            key={rate}
-                            type="button"
-                            onClick={() => handleChangePlaybackRate(rate)}
-                            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
-                              playbackRate === rate
-                                ? 'bg-white text-[#2563EB] shadow-sm'
-                                : 'text-slate-500 hover:text-slate-800'
+                    <div className="grid grid-cols-3 gap-2 sm:gap-3 pt-0.5">
+                      {[
+                        { label: '1. Video', min: 0, doneAt: 35 },
+                        { label: '2. Processing', min: 35, doneAt: 75 },
+                        { label: '3. Prepare Lesson', min: 75, doneAt: 100 },
+                      ].map((step) => {
+                        const done = createProgress >= step.doneAt;
+                        const active = createProgress >= step.min && !done;
+                        return (
+                          <div
+                            key={step.label}
+                            className={`px-2.5 sm:px-3 py-2 rounded-xl text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all duration-300 ${
+                              done
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm'
+                                : active
+                                ? 'bg-blue-50 text-[#2563EB] border-blue-300 shadow-sm scale-[1.02]'
+                                : 'bg-white/80 text-slate-400 border-slate-200/70'
                             }`}
                           >
-                            {rate}x
-                          </button>
-                        ))}
-                      </div>
+                            {done ? (
+                              <Check className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                            ) : active ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0 text-[#2563EB]" />
+                            ) : (
+                              <span className="w-2 h-2 rounded-full bg-slate-300 shrink-0" />
+                            )}
+                            <span className="truncate">{step.label}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-                </div>
-
-                {/* Mobile Compact Mode Tabs (< sm) */}
-                <div className="grid grid-cols-4 gap-1.5 p-1.5 bg-white rounded-2xl border border-slate-200 shadow-sm sm:hidden">
-                  <button
-                    type="button"
-                    onClick={() => handleSelectPracticeMode('lesson')}
-                    className={`py-2 px-1 rounded-xl text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
-                      practiceMode === 'lesson'
-                        ? 'bg-[#2563EB] text-white shadow-sm'
-                        : 'text-slate-600'
-                    }`}
-                  >
-                    <Mic className="w-4 h-4" />
-                    <span>Shadow</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleSelectPracticeMode('dictation')}
-                    className={`relative py-2 px-1 rounded-xl text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
-                      practiceMode === 'dictation'
-                        ? 'bg-amber-500 text-white shadow-sm'
-                        : 'text-slate-600'
-                    }`}
-                  >
-                    {isGuest && <Lock className="w-2.5 h-2.5 absolute top-1.5 right-1.5 text-slate-400" />}
-                    <Keyboard className="w-4 h-4" />
-                    <span>Dictation</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleSelectPracticeMode('vocabulary')}
-                    className={`relative py-2 px-1 rounded-xl text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
-                      practiceMode === 'vocabulary'
-                        ? 'bg-purple-600 text-white shadow-sm'
-                        : 'text-slate-600'
-                    }`}
-                  >
-                    {isGuest && <Lock className="w-2.5 h-2.5 absolute top-1.5 right-1.5 text-slate-400" />}
-                    <BookOpen className="w-4 h-4" />
-                    <span>Vocab</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleSelectPracticeMode('grammar')}
-                    className={`relative py-2 px-1 rounded-xl text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
-                      practiceMode === 'grammar'
-                        ? 'bg-rose-600 text-white shadow-sm'
-                        : 'text-slate-600'
-                    }`}
-                  >
-                    {isGuest && <Lock className="w-2.5 h-2.5 absolute top-1.5 right-1.5 text-slate-400" />}
-                    <GraduationCap className="w-4 h-4" />
-                    <span>Grammar</span>
-                  </button>
-                </div>
-
-                {/* Tablet & Desktop Animated "Choose a practice mode" Card (>= sm) */}
-                <div className="hidden sm:block bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h2 className="text-base sm:text-lg font-extrabold text-slate-900 flex items-center gap-2">
-                        <span>Choose a practice mode</span>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-[#2563EB] border border-blue-100">
-                          {isGuest ? 'Preview Mode' : '4 Modes'}
-                        </span>
-                      </h2>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        {isGuest
-                          ? 'Previewing Shadowing mode. Sign in free to unlock Dictation, Vocabulary & Grammar.'
-                          : 'Switch between Shadowing, Dictation Quiz, Vocabulary Flashcards, and Grammar.'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {/* Mode 1: Lesson (Shadowing) */}
-                    <button
-                      type="button"
-                      onClick={() => handleSelectPracticeMode('lesson')}
-                      className={`group relative overflow-hidden text-center p-4 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col items-center justify-between hover:-translate-y-1 hover:shadow-md ${
-                        practiceMode === 'lesson'
-                          ? 'border-[#2563EB] bg-gradient-to-b from-blue-50/80 to-white ring-2 ring-blue-600/20 shadow-md -translate-y-0.5'
-                          : 'border-slate-200 bg-white hover:border-blue-300'
-                      }`}
-                    >
-                      {practiceMode === 'lesson' && (
-                        <span className="absolute top-2.5 right-2.5 flex h-2 w-2">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-[#2563EB]"></span>
-                        </span>
-                      )}
-                      <div className="w-11 h-11 rounded-2xl bg-blue-100 text-[#2563EB] flex items-center justify-center mb-2.5 group-hover:scale-110 group-hover:-rotate-6 transition-all duration-300 shadow-sm">
-                        <Mic className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <div className="font-bold text-xs sm:text-sm text-slate-900">
-                          1. Shadowing
-                        </div>
-                        <p className="text-[11px] text-slate-500 mt-1 khmer-text">
-                          Repeat & ខ្មែរ
-                        </p>
-                      </div>
-                      <span className="mt-3 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-[#2563EB]">
-                        {activeSentenceIndex}/{sentences.length}
-                      </span>
-                    </button>
-
-                    {/* Mode 2: Dictation (Listen & Type) */}
-                    <button
-                      type="button"
-                      onClick={() => handleSelectPracticeMode('dictation')}
-                      className={`group relative overflow-hidden text-center p-4 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col items-center justify-between hover:-translate-y-1 hover:shadow-md ${
-                        practiceMode === 'dictation'
-                          ? 'border-amber-500 bg-gradient-to-b from-amber-50/80 to-white ring-2 ring-amber-500/20 shadow-md -translate-y-0.5'
-                          : 'border-slate-200 bg-white hover:border-amber-300'
-                      }`}
-                    >
-                      {isGuest ? (
-                        <span className="absolute top-2 right-2 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-500">
-                          <Lock className="w-2.5 h-2.5" />
-                        </span>
-                      ) : practiceMode === 'dictation' ? (
-                        <span className="absolute top-2.5 right-2.5 flex h-2 w-2">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                        </span>
-                      ) : (
-                        <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-amber-100 text-amber-700">
-                          New
-                        </span>
-                      )}
-                      <div className="w-11 h-11 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mb-2.5 group-hover:scale-110 group-hover:rotate-6 transition-all duration-300 shadow-sm">
-                        <Keyboard className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <div className="font-bold text-xs sm:text-sm text-slate-900">
-                          2. Dictation
-                        </div>
-                        <p className="text-[11px] text-slate-500 mt-1">
-                          Listen & type quiz
-                        </p>
-                      </div>
-                      <span className="mt-3 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700">
-                        {isGuest ? 'Sign in' : `#${activeSentenceIndex} active`}
-                      </span>
-                    </button>
-
-                    {/* Mode 3: Vocabulary */}
-                    <button
-                      type="button"
-                      onClick={() => handleSelectPracticeMode('vocabulary')}
-                      className={`group relative overflow-hidden text-center p-4 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col items-center justify-between hover:-translate-y-1 hover:shadow-md ${
-                        practiceMode === 'vocabulary'
-                          ? 'border-purple-600 bg-gradient-to-b from-purple-50/80 to-white ring-2 ring-purple-600/20 shadow-md -translate-y-0.5'
-                          : 'border-slate-200 bg-white hover:border-purple-300'
-                      }`}
-                    >
-                      {isGuest ? (
-                        <span className="absolute top-2 right-2 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-500">
-                          <Lock className="w-2.5 h-2.5" />
-                        </span>
-                      ) : practiceMode === 'vocabulary' ? (
-                        <span className="absolute top-2.5 right-2.5 flex h-2 w-2">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-500 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-600"></span>
-                        </span>
-                      ) : null}
-                      <div className="w-11 h-11 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center mb-2.5 group-hover:scale-110 group-hover:-rotate-6 transition-all duration-300 shadow-sm">
-                        <BookOpen className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <div className="font-bold text-xs sm:text-sm text-slate-900">
-                          3. Vocabulary
-                        </div>
-                        <p className="text-[11px] text-slate-500 mt-1">
-                          Words & flashcards
-                        </p>
-                      </div>
-                      <span className="mt-3 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-purple-50 text-purple-700">
-                        {isGuest ? 'Sign in' : `${vocabulary.length} words`}
-                      </span>
-                    </button>
-
-                    {/* Mode 4: Grammar */}
-                    <button
-                      type="button"
-                      onClick={() => handleSelectPracticeMode('grammar')}
-                      className={`group relative overflow-hidden text-center p-4 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col items-center justify-between hover:-translate-y-1 hover:shadow-md ${
-                        practiceMode === 'grammar'
-                          ? 'border-rose-600 bg-gradient-to-b from-rose-50/80 to-white ring-2 ring-rose-600/20 shadow-md -translate-y-0.5'
-                          : 'border-slate-200 bg-white hover:border-rose-300'
-                      }`}
-                    >
-                      {isGuest ? (
-                        <span className="absolute top-2 right-2 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-500">
-                          <Lock className="w-2.5 h-2.5" />
-                        </span>
-                      ) : practiceMode === 'grammar' ? (
-                        <span className="absolute top-2.5 right-2.5 flex h-2 w-2">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-600"></span>
-                        </span>
-                      ) : null}
-                      <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mb-2.5 group-hover:scale-110 group-hover:rotate-6 transition-all duration-300 shadow-sm">
-                        <GraduationCap className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <div className="font-bold text-xs sm:text-sm text-slate-900">
-                          4. Grammar
-                        </div>
-                        <p className="text-[11px] text-slate-500 mt-1">
-                          Bilingual rules
-                        </p>
-                      </div>
-                      <span className="mt-3 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700">
-                        {isGuest ? 'Sign in' : `${grammarPoints.length} rules`}
-                      </span>
-                    </button>
-                  </div>
-                </div>
+                )}
               </div>
+            )}
+
+            {/* Slim Dismissible Notification Toast */}
+            {notification && (
+              <div
+                className={`px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-medium flex items-center justify-between gap-3 shadow-2xs ${
+                  notification.type === 'error'
+                    ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                    : notification.type === 'info'
+                    ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                    : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                }`}
+              >
+                <span>{notification.message}</span>
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'SET_NOTIFICATION', payload: null })}
+                  className="text-current opacity-70 hover:opacity-100 shrink-0 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* =========================================================
+                RESPONSIVE SPLIT-SCREEN WORKSPACE (IMAGE 1 DESIGN)
+            ========================================================= */}
+            {(() => {
+              const activeSentenceObj =
+                sentences.find((s) => s.sentence_index === activeSentenceIndex) || sentences[0];
+              const playerSizeLabel =
+                playerSize === 'compact'
+                  ? 'Compact'
+                  : playerSize === 'large'
+                  ? 'Large'
+                  : 'Medium';
+
+              return (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5 items-start">
+                  {/* LEFT COLUMN: Black Rounded Video Player + Transport Controls + Active Spotlight Card */}
+                  <div className="lg:col-span-7 space-y-3.5">
+                    {/* Video Player Container (Matches Image 1 black rounded frame + Medium dropdown) */}
+                    <div className="relative bg-black rounded-2xl overflow-hidden shadow-md border border-slate-900/10">
+                      {/* Top-Right Size Dropdown Pill ("⚙ Medium ⌄") */}
+                      <div className="hidden sm:block absolute top-3 right-3 z-20">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            dispatch({
+                              type: 'SHADOWING_UPDATE',
+                              payload: {
+                                openMenu: shadowing.openMenu === 'size' ? null : 'size',
+                              },
+                            })
+                          }
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/92 hover:bg-white text-slate-800 text-xs font-semibold shadow-sm transition-all cursor-pointer"
+                        >
+                          <SlidersHorizontal className="w-3 h-3 text-slate-500" />
+                          <span>{playerSizeLabel}</span>
+                          <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                        </button>
+
+                        {shadowing.openMenu === 'size' && (
+                          <div className="absolute right-0 top-9 w-32 rounded-xl bg-white border border-slate-200 shadow-xl p-1.5 space-y-0.5">
+                            {[
+                              { id: 'compact', label: 'Compact' },
+                              { id: 'medium', label: 'Medium' },
+                              { id: 'large', label: 'Large' },
+                            ].map((sz) => (
+                              <button
+                                key={sz.id}
+                                type="button"
+                                onClick={() =>
+                                  dispatch({ type: 'SET_PLAYER_SIZE', payload: sz.id })
+                                }
+                                className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${
+                                  playerSize === sz.id
+                                    ? 'bg-blue-50 text-[#2563EB]'
+                                    : 'text-slate-700 hover:bg-slate-50'
+                                }`}
+                              >
+                                {sz.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div
+                        className={`w-full transition-all duration-300 ${
+                          playerSize === 'compact'
+                            ? 'aspect-video sm:h-[235px]'
+                            : playerSize === 'large'
+                            ? 'aspect-video'
+                            : 'aspect-video sm:h-[305px] lg:h-[325px]'
+                        }`}
+                      >
+                        <YouTube
+                          key={`${currentLesson?.id || 0}-${currentLesson?.video_id || 'eIho2S0ZahI'}`}
+                          videoId={currentLesson?.video_id || 'eIho2S0ZahI'}
+                          className="w-full h-full"
+                          iframeClassName="w-full h-full"
+                          opts={{
+                            width: '100%',
+                            height: '100%',
+                            playerVars: {
+                              autoplay: 0,
+                              modestbranding: 1,
+                              rel: 0,
+                              playsinline: 1,
+                            },
+                          }}
+                          onReady={(event) => {
+                            playerRef.current = event.target;
+                            if (playbackRate !== 1 && typeof event.target.setPlaybackRate === 'function') {
+                              event.target.setPlaybackRate(playbackRate);
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Floating Shadowing Transport & Pacing Control Card (Exact Image 1 design) */}
+                    <ShadowingControls
+                      activeSentence={activeSentenceObj}
+                      onPrev={() => handleJumpRelativeSentence(-1)}
+                      onReplay={handleReplayActiveSentence}
+                      onTogglePlay={handleTogglePlayPause}
+                      onNext={() => handleJumpRelativeSentence(1)}
+                      onSkipPause={handleSkipSpeakPause}
+                      onChangePlaybackRate={handleChangePlaybackRate}
+                    />
+
+                    {/* Active Sentence Hero Spotlight Card (IPA, Intonation, Stress, Khmer, Play-while-speaking) */}
+                    {practiceMode === 'lesson' && activeSentenceObj && (
+                      <ShadowingSpotlightCard
+                        activeSentence={activeSentenceObj}
+                        onWordClick={handleWordClick}
+                        onSpeakSentence={(text) =>
+                          speakEnglish(text, playbackRate, shadowing.accent)
+                        }
+                      />
+                    )}
+
+                    {/* Compact Lesson Progress Footer Pill on Non-Shadowing Modes */}
+                    {practiceMode !== 'lesson' && (
+                      <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-sm flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="text-xs font-bold text-slate-700">
+                            Practiced:{' '}
+                            <span className="text-[#2563EB]">{completedCount}</span> /{' '}
+                            {sentences.length}
+                          </div>
+                          <div className="w-28 h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-[#2563EB] transition-all duration-300"
+                              style={{ width: `${progressPercent}%` }}
+                            />
+                          </div>
+                          <span className="text-xs font-extrabold text-[#2563EB]">
+                            {progressPercent}%
+                          </span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSelectPracticeMode('lesson')}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-[#2563EB] text-xs font-semibold cursor-pointer"
+                        >
+                          <Mic className="w-3.5 h-3.5" />
+                          <span>Back to Shadowing Spotlight</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
               {/* RIGHT COLUMN: Dynamic Practice Workspace */}
               <div className="lg:col-span-5">
@@ -2312,228 +2473,17 @@ export default function App() {
                 )}
 
                 {practiceMode === 'lesson' && (
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    {/* Top Header */}
-                    <div className="p-3.5 sm:px-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-bold text-xs sm:text-sm text-slate-800">
-                        {sentences.length} sentences
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => dispatch({ type: 'TOGGLE_ALL_KHMER' })}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer khmer-text ${
-                          showAllKhmer
-                            ? 'bg-[#2563EB] text-white border-[#2563EB]'
-                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        <Languages className="w-3.5 h-3.5" />
-                        <span>
-                          {showAllKhmer ? 'លាក់ភាសាខ្មែរ (Hide All)' : 'បង្ហាញខ្មែរទាំងអស់ (ខ្មែរ All)'}
-                        </span>
-                      </button>
-                    </div>
-
-                    {/* Sentence Filter Input */}
-                    <div className="px-3.5 sm:px-4 pt-3">
-                      <div className="relative">
-                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="text"
-                          placeholder="Search English or Khmer sentence..."
-                          value={sentenceSearchQuery}
-                          onChange={(e) =>
-                            dispatch({ type: 'SET_SENTENCE_SEARCH', payload: e.target.value })
-                          }
-                          className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 bg-slate-50/70 text-xs focus:bg-white focus:outline-none focus:border-[#2563EB]"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Clicked Word Popup Bar */}
-                    {selectedWordPopup && (
-                      <div className="mx-3.5 sm:mx-4 mt-3 p-3 rounded-xl bg-blue-50/90 border border-blue-200 flex flex-wrap items-center justify-between gap-2.5">
-                        <div className="flex items-center gap-2.5">
-                          <button
-                            type="button"
-                            onClick={() => speakEnglish(selectedWordPopup.cleanWord, playbackRate)}
-                            className="w-8 h-8 rounded-lg bg-[#2563EB] text-white flex items-center justify-center shadow-sm hover:bg-blue-700 cursor-pointer shrink-0"
-                            title="Pronounce word"
-                          >
-                            <Volume2 className="w-4 h-4" />
-                          </button>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-sm text-slate-900">
-                                {selectedWordPopup.cleanWord}
-                              </span>
-                              {selectedWordPopup.existingMatch?.ipa && (
-                                <span className="text-xs text-slate-500 font-mono">
-                                  {selectedWordPopup.existingMatch.ipa}
-                                </span>
-                              )}
-                            </div>
-                            {selectedWordPopup.existingMatch?.khmer_meaning && (
-                              <div className="text-xs font-medium text-blue-800 khmer-text">
-                                {selectedWordPopup.existingMatch.khmer_meaning}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            disabled={selectedWordPopup.saving || selectedWordPopup.saved}
-                            onClick={handleSaveWordToVocabulary}
-                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                              selectedWordPopup.saved
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-[#2563EB] hover:bg-blue-700 text-white'
-                            }`}
-                          >
-                            {selectedWordPopup.saving ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                <span>Saving...</span>
-                              </>
-                            ) : selectedWordPopup.saved ? (
-                              <>
-                                <Check className="w-3.5 h-3.5" />
-                                <span>Saved!</span>
-                              </>
-                            ) : (
-                              <>
-                                <BookmarkPlus className="w-3.5 h-3.5" />
-                                <span>Save to Vocab</span>
-                              </>
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => dispatch({ type: 'CLOSE_WORD_POPUP' })}
-                            className="p-1 text-slate-400 hover:text-slate-700"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Sentence Rows List */}
-                    <div className="divide-y divide-slate-100 max-h-[500px] lg:max-h-[560px] overflow-y-auto smooth-scroll mt-2">
-                      {filteredSentences.map((s) => {
-                        const isActive = activeSentenceIndex === s.sentence_index;
-                        const isKhmerShown = !!visibleKhmerMap[s.sentence_index];
-                        const isCompleted = !!completedSentencesMap[s.sentence_index];
-                        const words = s.english_text.split(' ');
-
-                        return (
-                          <div
-                            key={s.id || s.sentence_index}
-                            ref={isActive ? activeSentenceRef : null}
-                            onClick={() => handleSentenceClick(s)}
-                            className={`p-3.5 sm:px-5 transition-all duration-200 cursor-pointer flex items-start gap-2.5 sm:gap-3.5 active:bg-blue-100/50 ${
-                              isActive
-                                ? 'bg-blue-50/75 border-l-4 border-[#2563EB]'
-                                : 'hover:bg-slate-50/90'
-                            }`}
-                          >
-                            {/* Sentence Index Badge */}
-                            <div
-                              className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full text-xs font-bold flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
-                                isActive
-                                  ? 'bg-[#2563EB] text-white shadow-sm'
-                                  : isCompleted
-                                  ? 'bg-emerald-100 text-emerald-700'
-                                  : 'bg-slate-100 text-slate-600'
-                              }`}
-                            >
-                              {s.sentence_index}
-                            </div>
-
-                            {/* English Text + Khmer Box */}
-                            <div className="flex-1 min-w-0">
-                              <div className="text-xs sm:text-[15px] font-medium text-slate-900 leading-relaxed flex flex-wrap gap-x-1">
-                                {words.map((word, wIdx) => (
-                                  <span
-                                    key={wIdx}
-                                    onClick={(e) => handleWordClick(e, word, s)}
-                                    className="hover:bg-blue-100/80 hover:text-[#2563EB] rounded px-0.5 transition-colors cursor-pointer"
-                                    title="Click to pronounce or save word"
-                                  >
-                                    {word}
-                                  </span>
-                                ))}
-                              </div>
-
-                              <div className="mt-1.5 flex items-center gap-2 text-[11px] text-slate-400">
-                                <span>
-                                  {formatTime(s.start_time)} - {formatTime(s.end_time)}
-                                </span>
-                              </div>
-
-                              {isKhmerShown && (
-                                <div className="mt-2.5 p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/70 text-slate-800 text-xs sm:text-sm khmer-text">
-                                  {s.khmer_text}
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Right Action Buttons: Mark Complete, Speak, Khmer Toggle */}
-                            <div
-                              className="flex items-center gap-1 shrink-0"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  dispatch({
-                                    type: 'TOGGLE_COMPLETE_SENTENCE',
-                                    payload: s.sentence_index,
-                                  })
-                                }
-                                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                                  isCompleted
-                                    ? 'text-emerald-600 bg-emerald-50'
-                                    : 'text-slate-300 hover:text-emerald-600'
-                                }`}
-                                title="Mark sentence as practiced"
-                              >
-                                <CheckCircle2 className="w-4 h-4" />
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => speakEnglish(s.english_text, playbackRate)}
-                                className="p-1.5 rounded-lg text-slate-500 hover:text-[#2563EB] hover:bg-blue-50 transition-colors cursor-pointer"
-                                title="Listen to sentence"
-                              >
-                                <Volume2 className="w-4 h-4" />
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  dispatch({
-                                    type: 'TOGGLE_SENTENCE_KHMER',
-                                    payload: s.sentence_index,
-                                  })
-                                }
-                                className={`px-2 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer khmer-text ${
-                                  isKhmerShown
-                                    ? 'bg-[#2563EB] text-white border-[#2563EB]'
-                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                                }`}
-                              >
-                                ខ្មែរ
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+                  <ShadowingRightPanel
+                    filteredSentences={filteredSentences}
+                    activeSentenceRef={activeSentenceRef}
+                    isGuest={isGuest}
+                    onSentenceClick={handleSentenceClick}
+                    onWordClick={handleWordClick}
+                    onSpeakText={(text) => speakEnglish(text, playbackRate, shadowing.accent)}
+                    onSaveWord={handleSaveWordToVocabulary}
+                    onSelectPracticeMode={handleSelectPracticeMode}
+                    onOpenLibraryLesson={handleOpenLibraryLesson}
+                  />
                 )}
 
                 {practiceMode === 'vocabulary' && (
@@ -2862,6 +2812,8 @@ export default function App() {
                 )}
               </div>
             </div>
+              );
+            })()}
           </>
         )}
         </div>
