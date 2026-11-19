@@ -1026,18 +1026,18 @@ export default function App() {
             <div className="h-full w-1/2 bg-gradient-to-r from-blue-400 via-[#2563EB] to-indigo-500 animate-indeterminate" />
           </div>
         )}
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between gap-4">
-          {/* Left: Minimalist Brand + Mobile All Lessons / My Lessons Triggers */}
-          <div className="flex items-center gap-2.5 shrink-0">
+        <div className="max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8 h-14 flex items-center justify-between gap-2 sm:gap-4">
+          {/* Left: Minimalist Brand + Tablet Triggers (Hidden on tiny phones so header never clips) */}
+          <div className="flex items-center gap-2 min-w-0">
             <button
               type="button"
               onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'library' })}
-              className="flex items-center gap-2 cursor-pointer group whitespace-nowrap"
+              className="flex items-center gap-2 cursor-pointer group whitespace-nowrap shrink-0"
             >
               <div className="w-7 h-7 rounded-lg bg-[#2563EB] flex items-center justify-center text-white shadow-sm group-hover:scale-105 transition-transform">
                 <Headphones className="w-4 h-4" />
               </div>
-              <span className="font-bold text-[15px] tracking-tight text-slate-900">
+              <span className="font-bold text-sm sm:text-[15px] tracking-tight text-slate-900">
                 Shadowing<span className="text-[#2563EB]">Khmer</span>
               </span>
             </button>
@@ -1045,7 +1045,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'library' })}
-              className={`lg:hidden inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+              className={`hidden sm:inline-flex lg:hidden items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
                 activeScreen === 'library'
                   ? 'bg-[#2563EB] text-white'
                   : 'bg-slate-100 hover:bg-slate-200/70 text-slate-700'
@@ -1061,7 +1061,7 @@ export default function App() {
                   ? dispatch({ type: 'OPEN_AUTH_MODAL', payload: 'login' })
                   : dispatch({ type: 'TOGGLE_LESSONS_DRAWER' })
               }
-              className="lg:hidden inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200/70 text-slate-700 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap"
+              className="hidden sm:inline-flex lg:hidden items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200/70 text-slate-700 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap"
             >
               <FolderOpen className="w-3.5 h-3.5 text-[#2563EB]" />
               <span>My ({lessonsList.length})</span>
@@ -1164,9 +1164,8 @@ export default function App() {
           </nav>
 
           {/* My Lessons Floating Glass Dropdown (Shared for Mobile & Desktop) */}
-          <div className="relative">
-            {isLessonsDrawerOpen && (
-              <div className="fixed sm:absolute left-3 right-3 sm:left-auto sm:right-0 top-16 sm:top-7 sm:w-96 rounded-2xl bg-white/95 backdrop-blur-xl border border-slate-200/90 shadow-2xl p-3.5 z-50">
+          {isLessonsDrawerOpen && (
+            <div className="fixed sm:absolute left-3 right-3 sm:left-auto sm:right-6 top-16 sm:top-14 sm:w-96 rounded-2xl bg-white/95 backdrop-blur-xl border border-slate-200/90 shadow-2xl p-3.5 z-50">
                   <div className="flex items-center justify-between px-1 pb-2.5 border-b border-slate-100">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
                       My Saved Lessons ({lessonsList.length})
@@ -1252,7 +1251,6 @@ export default function App() {
                   </div>
                 </div>
               )}
-            </div>
 
           {/* Right: Clean Single-Line Account Controls (Desktop & Tablet) */}
           <div className="hidden md:flex items-center gap-2.5 shrink-0">
@@ -1327,18 +1325,32 @@ export default function App() {
             )}
           </div>
 
-          {/* Mobile Hamburger Menu Button (< md) */}
-          <div className="flex md:hidden items-center gap-2">
+          {/* Mobile Compact Actions + Hamburger Menu (< md) */}
+          <div className="flex md:hidden items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() =>
+                isGuest
+                  ? dispatch({ type: 'OPEN_AUTH_MODAL', payload: 'login' })
+                  : dispatch({ type: 'TOGGLE_LESSONS_DRAWER' })
+              }
+              className="sm:hidden inline-flex items-center gap-1 px-2 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200/70 text-slate-700 text-xs font-semibold cursor-pointer"
+              title="My Saved Lessons"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-[#2563EB]" />
+              <span>{lessonsList.length}</span>
+            </button>
+
             {isAdmin && (
               <button
                 type="button"
                 onClick={() =>
                   dispatch({
                     type: 'SET_ACTIVE_SCREEN',
-                    payload: activeScreen === 'admin' ? 'workspace' : 'admin',
+                    payload: activeScreen === 'admin' ? 'library' : 'admin',
                   })
                 }
-                className={`p-2 rounded-xl border text-xs font-semibold ${
+                className={`p-2 rounded-xl border text-xs font-semibold cursor-pointer ${
                   activeScreen === 'admin'
                     ? 'bg-[#2563EB] text-white border-[#2563EB]'
                     : 'bg-blue-50 text-[#2563EB] border-blue-200'
@@ -1351,7 +1363,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => dispatch({ type: 'TOGGLE_MOBILE_MENU' })}
-              className="p-2 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              className="p-2 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 cursor-pointer"
               aria-label="Toggle mobile menu"
             >
               {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -1361,7 +1373,63 @@ export default function App() {
 
         {/* Mobile Dropdown Drawer (< md) */}
         {isMobileMenuOpen && (
-          <div className="md:hidden border-t border-slate-100 bg-white px-4 py-4 space-y-3 shadow-lg">
+          <div className="md:hidden border-t border-slate-100 bg-white px-4 py-4 space-y-3.5 shadow-lg">
+            {/* Mobile Page & Practice Navigation Grid */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'library' })}
+                className={`py-2 px-3 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer ${
+                  activeScreen === 'library'
+                    ? 'bg-[#2563EB] text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                All Lessons
+              </button>
+              {[
+                { id: 'lesson', label: 'Shadowing' },
+                { id: 'dictation', label: 'Dictation' },
+                { id: 'vocabulary', label: 'Vocabulary' },
+                { id: 'grammar', label: 'Grammar' },
+              ].map((navItem) => {
+                const isActive = activeScreen === 'workspace' && practiceMode === navItem.id;
+                const isLocked = isGuest && navItem.id !== 'lesson';
+                return (
+                  <button
+                    key={navItem.id}
+                    type="button"
+                    onClick={() => {
+                      dispatch({ type: 'TOGGLE_MOBILE_MENU', payload: false });
+                      handleSelectPracticeMode(navItem.id);
+                    }}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-between transition-colors cursor-pointer ${
+                      isActive
+                        ? 'bg-[#2563EB] text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    <span>{navItem.label}</span>
+                    {isLocked && <Lock className="w-3 h-3 opacity-60" />}
+                  </button>
+                );
+              })}
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'admin' })}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer ${
+                    activeScreen === 'admin'
+                      ? 'bg-[#2563EB] text-white shadow-sm'
+                      : 'bg-blue-50 text-[#2563EB] border border-blue-200'
+                  }`}
+                >
+                  Admin Dashboard
+                </button>
+              )}
+            </div>
+
+            <div className="border-t border-slate-100 pt-3">
             {isGuest ? (
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -1443,6 +1511,7 @@ export default function App() {
                 </div>
               </>
             )}
+            </div>
           </div>
         )}
       </header>

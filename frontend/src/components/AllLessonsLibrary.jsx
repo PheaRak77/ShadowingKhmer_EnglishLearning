@@ -6,15 +6,12 @@ import {
   Search,
   History,
   BookOpenCheck,
-  Loader2,
   Clock,
   CheckCircle2,
   X,
   PlusCircle,
   Pencil,
   Trash2,
-  Youtube,
-  Crown,
 } from 'lucide-react';
 import { useAppContext } from '../reducer/appReducer.js';
 
@@ -59,56 +56,10 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
   const { state, dispatch } = useAppContext();
   const { auth, library, adminDashboard } = state;
   const { loading, lessons, history, activeTab, selectedLevel, searchQuery } = library;
-  const { createLibraryForm, editingLessonId, lessonEditForm } = adminDashboard;
+  const { editingLessonId, lessonEditForm } = adminDashboard;
 
   const isGuest = !auth.user || !auth.token;
   const isAdmin = !isGuest && auth.user?.role === 'admin';
-
-  // Admin-only: Create & publish a new video lesson directly on the All Lessons page
-  const handleAdminCreateLesson = async (e) => {
-    e.preventDefault();
-    if (!isAdmin || !createLibraryForm.videoUrl.trim() || createLibraryForm.creating) return;
-
-    dispatch({ type: 'ADMIN_CREATE_LIBRARY_START' });
-    try {
-      const res = await fetch(`${API_BASE}/api/lessons/create`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${auth.token}`,
-        },
-        body: JSON.stringify({
-          videoUrl: createLibraryForm.videoUrl.trim(),
-          isPublic: true,
-          cefrLevel: createLibraryForm.cefrLevel,
-          tags: createLibraryForm.tags.trim() || 'Daily Conversation',
-        }),
-      });
-      const data = await parseJsonSafe(res);
-      if (res.ok && data.lesson) {
-        dispatch({ type: 'ADMIN_CREATE_LIBRARY_DONE', payload: data });
-        dispatch({
-          type: 'SET_NOTIFICATION',
-          payload: {
-            type: 'success',
-            message: `Published "${data.lesson.title}" to All Lessons for all students!`,
-          },
-        });
-      } else {
-        dispatch({ type: 'ADMIN_CREATE_LIBRARY_DONE' });
-        dispatch({
-          type: 'SET_NOTIFICATION',
-          payload: { type: 'error', message: data.error || 'Failed to create video lesson.' },
-        });
-      }
-    } catch {
-      dispatch({ type: 'ADMIN_CREATE_LIBRARY_DONE' });
-      dispatch({
-        type: 'SET_NOTIFICATION',
-        payload: { type: 'error', message: 'Network error while creating video lesson.' },
-      });
-    }
-  };
 
   // Admin-only: Save edited title / level / tags directly on a card
   const handleAdminSaveEdit = async (e, lessonId) => {
@@ -201,21 +152,21 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
   });
 
   return (
-    <div className="space-y-6">
-      {/* Top Hero / Filter Header */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 shadow-sm space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-[#2563EB] border border-blue-100">
-                <BookOpenCheck className="w-3.5 h-3.5" />
+    <div className="space-y-4 sm:space-y-6">
+      {/* Top Hero / Filter Header (Clean & Mobile-First) */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-6 shadow-sm space-y-3.5 sm:space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-[#2563EB] border border-blue-100 w-fit whitespace-nowrap">
+                <BookOpenCheck className="w-3.5 h-3.5 shrink-0" />
                 <span>Curated Video Stories</span>
               </span>
-              <span className="text-xs text-slate-400">
+              <span className="text-[11px] sm:text-xs text-slate-400">
                 Click any story to practice Shadowing & Khmer translation
               </span>
             </div>
-            <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 mt-1.5 tracking-tight">
+            <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 mt-1.5 tracking-tight">
               {activeTab === 'history' ? 'My Study History' : 'All Video Lessons'}
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 mt-0.5 khmer-text">
@@ -224,136 +175,58 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
                 : 'ជ្រើសរើសវីដេអូមេរៀនអង់គ្លេសដែលអ្នកចូលចិត្ត ដើម្បីហ្វឹកហាត់ស្តាប់ និងនិយាយតាម (Shadowing) ជាមួយការបកប្រែភាសាខ្មែរ។'}
             </p>
           </div>
+
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'admin' })}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[#2563EB] hover:bg-blue-700 text-white text-xs sm:text-sm font-bold shadow-sm transition-all cursor-pointer shrink-0 whitespace-nowrap"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>Add Video in Admin</span>
+            </button>
+          )}
         </div>
-
-        {/* ADMIN-ONLY VIDEO LESSON CREATOR CONTROLLER (Right on All Lessons Page) */}
-        {isAdmin && (
-          <form
-            onSubmit={handleAdminCreateLesson}
-            className="p-4 rounded-2xl bg-gradient-to-r from-blue-50/80 via-indigo-50/40 to-white border border-blue-200/80 space-y-3"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="inline-flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wider text-[#2563EB]">
-                <Crown className="w-3.5 h-3.5" />
-                <span>Admin All Lessons Controller — Create Video Lesson for Students</span>
-              </span>
-              <span className="text-[11px] font-medium text-slate-500">
-                Only visible to Admin • Publishes directly to students&apos; first page
-              </span>
-            </div>
-
-            <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5">
-              <div className="relative flex-1">
-                <Youtube className="w-4 h-4 text-rose-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  required
-                  placeholder="Paste YouTube video link (e.g. https://youtu.be/...)"
-                  value={createLibraryForm.videoUrl}
-                  onChange={(e) =>
-                    dispatch({
-                      type: 'ADMIN_UPDATE_CREATE_LIBRARY_FORM',
-                      payload: { field: 'videoUrl', value: e.target.value },
-                    })
-                  }
-                  disabled={createLibraryForm.creating}
-                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#2563EB]"
-                />
-              </div>
-
-              <select
-                value={createLibraryForm.cefrLevel}
-                onChange={(e) =>
-                  dispatch({
-                    type: 'ADMIN_UPDATE_CREATE_LIBRARY_FORM',
-                    payload: { field: 'cefrLevel', value: e.target.value },
-                  })
-                }
-                disabled={createLibraryForm.creating}
-                className="px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:border-[#2563EB]"
-                title="CEFR Level"
-              >
-                {['A1', 'A2', 'B1', 'B2', 'C1'].map((lvl) => (
-                  <option key={lvl} value={lvl}>
-                    Level {lvl}
-                  </option>
-                ))}
-              </select>
-
-              <input
-                type="text"
-                placeholder="Tags: Travel English, Daily Conversation"
-                value={createLibraryForm.tags}
-                onChange={(e) =>
-                  dispatch({
-                    type: 'ADMIN_UPDATE_CREATE_LIBRARY_FORM',
-                    payload: { field: 'tags', value: e.target.value },
-                  })
-                }
-                disabled={createLibraryForm.creating}
-                className="lg:w-60 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#2563EB]"
-              />
-
-              <button
-                type="submit"
-                disabled={createLibraryForm.creating || !createLibraryForm.videoUrl.trim()}
-                className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-50 text-white text-xs sm:text-sm font-bold shadow-sm transition-all cursor-pointer whitespace-nowrap"
-              >
-                {createLibraryForm.creating ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Creating Lesson...</span>
-                  </>
-                ) : (
-                  <>
-                    <PlusCircle className="w-4 h-4" />
-                    <span>Create Video Lesson</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-        )}
 
         {/* Switcher Tabs + Level Filter + Search */}
         <div className="pt-3 border-t border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          {/* Left: All Lessons vs My Study History */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex items-center bg-slate-100 p-1 rounded-xl">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2.5 w-full lg:w-auto">
+            {/* Full-width 2-col switcher on phones, inline pill on sm+ */}
+            <div className="grid grid-cols-2 sm:inline-flex items-center bg-slate-100 p-1 rounded-xl w-full sm:w-auto gap-1">
               <button
                 type="button"
                 onClick={() => dispatch({ type: 'LIBRARY_SET_TAB', payload: 'all' })}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                   activeTab === 'all'
                     ? 'bg-white text-slate-900 shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <ListVideo className="w-3.5 h-3.5 text-[#2563EB]" />
+                <ListVideo className="w-3.5 h-3.5 text-[#2563EB] shrink-0" />
                 <span>All Lessons ({lessons.length})</span>
               </button>
               <button
                 type="button"
                 onClick={() => dispatch({ type: 'LIBRARY_SET_TAB', payload: 'history' })}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                   activeTab === 'history'
                     ? 'bg-white text-slate-900 shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <History className="w-3.5 h-3.5 text-emerald-600" />
-                <span>My Study History ({history.length})</span>
+                <History className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>Study History ({history.length})</span>
               </button>
             </div>
 
-            {/* CEFR Level Filter Pills */}
-            <div className="flex items-center gap-1 overflow-x-auto">
+            {/* CEFR Level Filter Pills (Scrollable cleanly on small devices) */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 sm:pb-0">
               {LEVELS.map((lvl) => (
                 <button
                   key={lvl}
                   type="button"
                   onClick={() => dispatch({ type: 'LIBRARY_SET_LEVEL', payload: lvl })}
-                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
                     selectedLevel === lvl
                       ? 'bg-slate-900 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -365,8 +238,8 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
             </div>
           </div>
 
-          {/* Right: Search */}
-          <div className="relative w-full lg:w-72">
+          {/* Search */}
+          <div className="relative w-full lg:w-72 shrink-0">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
@@ -390,7 +263,7 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
 
       {/* Video Cards Grid */}
       {loading && sourceList.length === 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5 sm:gap-5">
           {Array.from({ length: 8 }).map((_, idx) => (
             <div
               key={idx}
@@ -411,7 +284,7 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
           ))}
         </div>
       ) : filteredCards.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center space-y-3">
+        <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-8 sm:p-12 text-center space-y-3">
           <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
             {activeTab === 'history' ? (
               <History className="w-6 h-6" />
@@ -428,7 +301,7 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
             {activeTab === 'history'
               ? 'Open any story from All Lessons to start practicing — every lesson you study will appear here automatically.'
               : isAdmin
-              ? 'Paste any YouTube link in the Admin box above to create your first video lesson for students.'
+              ? 'Open Admin Dashboard to add your first curated video lesson for students.'
               : 'No lessons available yet. Ask an Admin to add video lessons.'}
           </p>
           {activeTab === 'history' && (
@@ -442,7 +315,7 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5 sm:gap-5">
           {filteredCards.map((lesson) => {
             const level = (lesson.cefr_level || 'A2').toUpperCase();
             const levelClass = LEVEL_BADGE_STYLES[level] || LEVEL_BADGE_STYLES.A2;
@@ -477,20 +350,17 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-black/25" />
 
-                  {/* Top-Left: CEFR Level Pill */}
                   <span
                     className={`absolute top-2.5 left-2.5 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold border shadow-sm ${levelClass}`}
                   >
                     {level}
                   </span>
 
-                  {/* Top-Right: Study View Flame Pill */}
                   <span className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-black/65 backdrop-blur-sm text-amber-300">
                     <Flame className="w-3 h-3 fill-amber-400 text-amber-400" />
                     <span>{lesson.view_count || 0}</span>
                   </span>
 
-                  {/* Center Hover Play Icon */}
                   {!isEditingThis && (
                     <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                       <div className="w-12 h-12 rounded-full bg-[#2563EB]/95 text-white flex items-center justify-center shadow-xl">
@@ -499,13 +369,11 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
                     </div>
                   )}
 
-                  {/* Bottom-Left: Sentence Count Badge */}
                   <span className="absolute bottom-2.5 left-2.5 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-black/70 backdrop-blur-sm text-white">
                     <ListVideo className="w-3 h-3 text-blue-300" />
                     <span>{sentenceCount} sentences</span>
                   </span>
 
-                  {/* Bottom-Right: Studied Check Badge */}
                   {studiedInfo && (
                     <span className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-600/90 backdrop-blur-sm text-white">
                       <CheckCircle2 className="w-3 h-3" />
@@ -517,10 +385,7 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
                 {/* Card Body */}
                 <div className="p-3.5 flex-1 flex flex-col justify-between gap-2.5">
                   {isEditingThis ? (
-                    <div
-                      className="space-y-2"
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="text"
                         value={lessonEditForm.title}
@@ -590,7 +455,6 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
                       </h3>
 
                       <div className="space-y-2">
-                        {/* Category / Tag Chips + Admin Controls */}
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex flex-wrap items-center gap-1.5">
                             {tagsList.map((tag, idx) => (
@@ -631,7 +495,6 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
                           )}
                         </div>
 
-                        {/* Studied History Footer Bar */}
                         {studiedInfo && (
                           <div className="pt-2 border-t border-slate-100 space-y-1">
                             <div className="flex items-center justify-between text-[11px] text-slate-500">

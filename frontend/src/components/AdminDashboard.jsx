@@ -19,6 +19,8 @@ import {
   EyeOff,
   Pencil,
   Flame,
+  PlusCircle,
+  Youtube,
 } from 'lucide-react';
 import { useAppContext } from '../reducer/appReducer.js';
 import { GoogleIcon } from './AuthForm.jsx';
@@ -53,6 +55,7 @@ export default function AdminDashboard({ onOpenLesson }) {
     savingLimit,
     editingUserLimitId,
     userLimitForm,
+    createLibraryForm,
     editingLessonId,
     lessonEditForm,
   } = adminDashboard;
@@ -279,6 +282,51 @@ export default function AdminDashboard({ onOpenLesson }) {
     }
   };
 
+  const handleAdminCreateLesson = async (e) => {
+    e.preventDefault();
+    if (!createLibraryForm.videoUrl.trim() || createLibraryForm.creating) return;
+
+    dispatch({ type: 'ADMIN_CREATE_LIBRARY_START' });
+    try {
+      const res = await fetch(`${API_BASE}/api/lessons/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({
+          videoUrl: createLibraryForm.videoUrl.trim(),
+          isPublic: true,
+          cefrLevel: createLibraryForm.cefrLevel,
+          tags: createLibraryForm.tags.trim() || 'Daily Conversation',
+        }),
+      });
+      const data = await parseJsonSafe(res);
+      if (res.ok && data.lesson) {
+        dispatch({ type: 'ADMIN_CREATE_LIBRARY_DONE', payload: data });
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: {
+            type: 'success',
+            message: `Published "${data.lesson.title}" to All Lessons for all students!`,
+          },
+        });
+      } else {
+        dispatch({ type: 'ADMIN_CREATE_LIBRARY_DONE' });
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: { type: 'error', message: data.error || 'Failed to create video lesson.' },
+        });
+      }
+    } catch {
+      dispatch({ type: 'ADMIN_CREATE_LIBRARY_DONE' });
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: { type: 'error', message: 'Network error while creating video lesson.' },
+      });
+    }
+  };
+
   const handleToggleLessonPublic = async (lesson) => {
     try {
       const res = await fetch(`${API_BASE}/api/admin/lessons/${lesson.id}`, {
@@ -373,35 +421,34 @@ export default function AdminDashboard({ onOpenLesson }) {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Admin Header Banner */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-start sm:items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 text-[#2563EB] flex items-center justify-center shrink-0">
-            <ShieldCheck className="w-6 h-6" />
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start sm:items-center gap-3">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-blue-50 border border-blue-200 text-[#2563EB] flex items-center justify-center shrink-0">
+            <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900">
                 Admin Dashboard
               </h1>
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-[#2563EB]">
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-[#2563EB] whitespace-nowrap">
                 Admin Role Only
               </span>
             </div>
             <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-              Manage Admin & Student accounts, Google OAuth connections, video shadowing lessons,
-              and bilingual content.
+              Create curated video lessons for students, manage accounts, limits, and content.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 shrink-0">
+        <div className="grid grid-cols-2 sm:flex items-center gap-2 shrink-0 w-full sm:w-auto">
           <button
             type="button"
             onClick={fetchAdminOverview}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer whitespace-nowrap"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             <span>Refresh</span>
@@ -409,70 +456,169 @@ export default function AdminDashboard({ onOpenLesson }) {
 
           <button
             type="button"
-            onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' })}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#2563EB] hover:bg-blue-700 text-xs font-semibold text-white shadow-sm cursor-pointer"
+            onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'library' })}
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[#2563EB] hover:bg-blue-700 text-xs font-semibold text-white shadow-sm cursor-pointer whitespace-nowrap"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Back to Shadowing</span>
+            <span>All Lessons</span>
           </button>
         </div>
       </div>
 
       {/* 6 KPI Stat Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <div className="w-9 h-9 rounded-xl bg-blue-50 text-[#2563EB] flex items-center justify-center mb-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-4">
+        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 sm:p-4 shadow-sm">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-blue-50 text-[#2563EB] flex items-center justify-center mb-2">
             <Users className="w-4 h-4" />
           </div>
-          <div className="text-2xl font-extrabold text-slate-900">{stats.totalUsers}</div>
-          <div className="text-xs font-medium text-slate-500">Total Users</div>
+          <div className="text-xl sm:text-2xl font-extrabold text-slate-900">{stats.totalUsers}</div>
+          <div className="text-[11px] sm:text-xs font-medium text-slate-500">Total Users</div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-2.5">
+        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 sm:p-4 shadow-sm">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-2">
             <GoogleIcon className="w-4 h-4" />
           </div>
-          <div className="text-2xl font-extrabold text-slate-900">
+          <div className="text-xl sm:text-2xl font-extrabold text-slate-900">
             {stats.googleConnectedUsers}
           </div>
-          <div className="text-xs font-medium text-slate-500">Google Connected</div>
+          <div className="text-[11px] sm:text-xs font-medium text-slate-500">Google Connected</div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-2.5">
+        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 sm:p-4 shadow-sm">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-2">
             <Video className="w-4 h-4" />
           </div>
-          <div className="text-2xl font-extrabold text-slate-900">{stats.totalLessons}</div>
-          <div className="text-xs font-medium text-slate-500">Total Lessons</div>
+          <div className="text-xl sm:text-2xl font-extrabold text-slate-900">{stats.totalLessons}</div>
+          <div className="text-[11px] sm:text-xs font-medium text-slate-500">Total Lessons</div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mb-2.5">
+        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 sm:p-4 shadow-sm">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mb-2">
             <MessageSquareText className="w-4 h-4" />
           </div>
-          <div className="text-2xl font-extrabold text-slate-900">{stats.totalSentences}</div>
-          <div className="text-xs font-medium text-slate-500">Total Sentences</div>
+          <div className="text-xl sm:text-2xl font-extrabold text-slate-900">{stats.totalSentences}</div>
+          <div className="text-[11px] sm:text-xs font-medium text-slate-500">Total Sentences</div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center mb-2.5">
+        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 sm:p-4 shadow-sm">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center mb-2">
             <BookOpen className="w-4 h-4" />
           </div>
-          <div className="text-2xl font-extrabold text-slate-900">{stats.totalVocabulary}</div>
-          <div className="text-xs font-medium text-slate-500">Saved Vocabulary</div>
+          <div className="text-xl sm:text-2xl font-extrabold text-slate-900">{stats.totalVocabulary}</div>
+          <div className="text-[11px] sm:text-xs font-medium text-slate-500">Saved Vocabulary</div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <div className="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center mb-2.5">
+        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 sm:p-4 shadow-sm">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center mb-2">
             <GraduationCap className="w-4 h-4" />
           </div>
-          <div className="text-2xl font-extrabold text-slate-900">{stats.totalGrammarPoints}</div>
-          <div className="text-xs font-medium text-slate-500">Grammar Rules</div>
+          <div className="text-xl sm:text-2xl font-extrabold text-slate-900">{stats.totalGrammarPoints}</div>
+          <div className="text-[11px] sm:text-xs font-medium text-slate-500">Grammar Rules</div>
         </div>
       </div>
 
+      {/* Admin Create Video Lesson for Students Card (Responsive Grid) */}
+      <form
+        onSubmit={handleAdminCreateLesson}
+        className="bg-white rounded-2xl border border-blue-200/90 p-4 sm:p-6 shadow-sm space-y-3.5"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200 text-[#2563EB] flex items-center justify-center shrink-0">
+              <Crown className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                Create Video Lesson for Students
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Publishes directly to the <span className="font-semibold text-slate-700">All Lessons</span> first page for all students &amp; new users.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5">
+          <div className="relative sm:col-span-2 lg:col-span-5">
+            <Youtube className="w-4 h-4 text-rose-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              required
+              placeholder="Paste YouTube video link (e.g. https://youtu.be/...)"
+              value={createLibraryForm.videoUrl}
+              onChange={(e) =>
+                dispatch({
+                  type: 'ADMIN_UPDATE_CREATE_LIBRARY_FORM',
+                  payload: { field: 'videoUrl', value: e.target.value },
+                })
+              }
+              disabled={createLibraryForm.creating}
+              className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#2563EB]"
+            />
+          </div>
+
+          <div className="lg:col-span-2">
+            <select
+              value={createLibraryForm.cefrLevel}
+              onChange={(e) =>
+                dispatch({
+                  type: 'ADMIN_UPDATE_CREATE_LIBRARY_FORM',
+                  payload: { field: 'cefrLevel', value: e.target.value },
+                })
+              }
+              disabled={createLibraryForm.creating}
+              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white text-xs sm:text-sm font-bold text-slate-800 focus:outline-none focus:border-[#2563EB]"
+              title="CEFR Level"
+            >
+              {['A1', 'A2', 'B1', 'B2', 'C1'].map((lvl) => (
+                <option key={lvl} value={lvl}>
+                  Level {lvl}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="lg:col-span-3">
+            <input
+              type="text"
+              placeholder="Tags: Daily Conversation, Story"
+              value={createLibraryForm.tags}
+              onChange={(e) =>
+                dispatch({
+                  type: 'ADMIN_UPDATE_CREATE_LIBRARY_FORM',
+                  payload: { field: 'tags', value: e.target.value },
+                })
+              }
+              disabled={createLibraryForm.creating}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#2563EB]"
+            />
+          </div>
+
+          <div className="sm:col-span-2 lg:col-span-2">
+            <button
+              type="submit"
+              disabled={createLibraryForm.creating || !createLibraryForm.videoUrl.trim()}
+              className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-50 text-white text-xs sm:text-sm font-bold shadow-sm transition-all cursor-pointer whitespace-nowrap"
+            >
+              {createLibraryForm.creating ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Creating...</span>
+                </>
+              ) : (
+                <>
+                  <PlusCircle className="w-4 h-4" />
+                  <span>Create Lesson</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </form>
+
       {/* Student YouTube URL Limit Settings Card */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:px-6 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 sm:px-6 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex items-start sm:items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shrink-0">
             <SlidersHorizontal className="w-5 h-5" />
@@ -495,9 +641,12 @@ export default function AdminDashboard({ onOpenLesson }) {
           </div>
         </div>
 
-        <form onSubmit={handleSaveGlobalLimit} className="flex flex-wrap items-center gap-2.5">
-          <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600">
-            <span>Max Videos:</span>
+        <form
+          onSubmit={handleSaveGlobalLimit}
+          className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2.5 w-full lg:w-auto"
+        >
+          <label className="flex items-center justify-between sm:justify-start gap-2 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-600">
+            <span>Max Videos</span>
             <input
               type="number"
               min={1}
@@ -509,12 +658,12 @@ export default function AdminDashboard({ onOpenLesson }) {
                   payload: { field: 'maxLessons', value: e.target.value },
                 })
               }
-              className="w-16 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 text-center focus:bg-white focus:outline-none focus:border-[#2563EB]"
+              className="w-14 px-2 py-1 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-900 text-center focus:outline-none focus:border-[#2563EB]"
             />
           </label>
 
-          <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600">
-            <span>Every (Days):</span>
+          <label className="flex items-center justify-between sm:justify-start gap-2 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-600">
+            <span>Every Days</span>
             <input
               type="number"
               min={1}
@@ -526,14 +675,14 @@ export default function AdminDashboard({ onOpenLesson }) {
                   payload: { field: 'windowDays', value: e.target.value },
                 })
               }
-              className="w-16 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 text-center focus:bg-white focus:outline-none focus:border-[#2563EB]"
+              className="w-14 px-2 py-1 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-900 text-center focus:outline-none focus:border-[#2563EB]"
             />
           </label>
 
           <button
             type="submit"
             disabled={savingLimit}
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-60 text-xs font-bold text-white shadow-sm cursor-pointer"
+            className="col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-60 text-xs font-bold text-white shadow-sm cursor-pointer whitespace-nowrap"
           >
             {savingLimit && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
             <span>Save Limit</span>
@@ -544,29 +693,29 @@ export default function AdminDashboard({ onOpenLesson }) {
       {/* Management Card: Tabs + Search + Tables */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         {/* Top Bar */}
-        <div className="p-4 sm:px-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl w-fit">
+        <div className="p-3.5 sm:p-4 sm:px-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="grid grid-cols-2 sm:flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl w-full sm:w-fit">
             <button
               type="button"
               onClick={() => dispatch({ type: 'ADMIN_SET_TAB', payload: 'users' })}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                 activeTab === 'users'
                   ? 'bg-white text-slate-900 shadow-sm'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Admins & Students ({users.length})
+              Users ({users.length})
             </button>
             <button
               type="button"
               onClick={() => dispatch({ type: 'ADMIN_SET_TAB', payload: 'lessons' })}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                 activeTab === 'lessons'
                   ? 'bg-white text-slate-900 shadow-sm'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              All Video Lessons ({lessons.length})
+              Lessons ({lessons.length})
             </button>
           </div>
 
