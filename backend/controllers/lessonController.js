@@ -2,6 +2,11 @@ import { LessonModel } from '../models/lessonModel.js';
 import { LimitModel } from '../models/limitModel.js';
 import { pool } from '../config/db.js';
 import {
+  getCached,
+  setCached,
+  invalidateAllLessonCaches,
+} from '../utils/responseCache.js';
+import {
   extractYouTubeId,
   fetchYoutubeCaptionsWithYtDlp,
   parseManualTranscript,
@@ -83,7 +88,13 @@ export const LessonController = {
   // GET /api/lessons/library (Public — first page for new users, guests, and students)
   async getPublicLibrary(req, res) {
     try {
+      res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+      const cached = getCached('public_library');
+      if (cached) {
+        return res.json({ lessons: cached });
+      }
       const lessons = await LessonModel.findPublicLibraryLessons();
+      setCached('public_library', lessons, 60_000);
       return res.json({ lessons });
     } catch (err) {
       console.error('Get public library error:', err);
@@ -99,13 +110,24 @@ export const LessonController = {
         return res.status(400).json({ error: 'Invalid lesson ID.' });
       }
 
+      res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+      const cacheKey = `lesson_public:${lessonId}`;
+      const cached = getCached(cacheKey);
+      if (cached) {
+        // Non-blocking view increment
+        LessonModel.incrementViewCount(lessonId).catch(() => {});
+        return res.json(cached);
+      }
+
       const details = await LessonModel.findByIdWithDetails(lessonId, null, false, true);
       if (!details) {
         return res.status(404).json({ error: 'Public lesson not found.' });
       }
 
-      await LessonModel.incrementViewCount(lessonId).catch(() => {});
+      // Non-blocking view increment so opening a lesson returns immediately
+      LessonModel.incrementViewCount(lessonId).catch(() => {});
       const healed = await healMissingKhmerTranslations(details);
+      setCached(cacheKey, healed, 300_000);
       return res.json(healed);
     } catch (err) {
       console.error('Get public lesson details error:', err);
@@ -163,6 +185,20 @@ export const LessonController = {
         return res.status(400).json({ error: 'Invalid lesson ID.' });
       }
 
+      // Fast path: if this is an Admin-published public lesson already cached in memory, return instantly!
+      const cacheKey = `lesson_public:${lessonId}`;
+      const cachedPublic = getCached(cacheKey);
+      if (cachedPublic) {
+        LessonModel.incrementViewCount(lessonId).catch(() => {});
+        LessonModel.upsertStudyHistory(
+          req.user.id,
+          lessonId,
+          0,
+          cachedPublic.sentences?.length || 0
+        ).catch(() => {});
+        return res.json(cachedPublic);
+      }
+
       const isAdmin = req.user.role === 'admin';
       const details = await LessonModel.findByIdWithDetails(lessonId, req.user.id, isAdmin, true);
 
@@ -170,19 +206,21 @@ export const LessonController = {
         return res.status(404).json({ error: 'Lesson not found.' });
       }
 
-      await Promise.all([
-        details.lesson.is_public ? LessonModel.incrementViewCount(lessonId).catch(() => {}) : Promise.resolve(),
-        details.lesson.is_public
-          ? LessonModel.upsertStudyHistory(
-              req.user.id,
-              lessonId,
-              0,
-              details.sentences?.length || 0
-            ).catch(() => {})
-          : Promise.resolve(),
-      ]);
+      // Non-blocking analytics/history updates so lesson loads faster
+      if (details.lesson.is_public) {
+        LessonModel.incrementViewCount(lessonId).catch(() => {});
+        LessonModel.upsertStudyHistory(
+          req.user.id,
+          lessonId,
+          0,
+          details.sentences?.length || 0
+        ).catch(() => {});
+      }
 
       const healed = await healMissingKhmerTranslations(details);
+      if (healed.lesson?.is_public) {
+        setCached(cacheKey, healed, 300_000);
+      }
       return res.json(healed);
     } catch (err) {
       console.error('Get single lesson error:', err);
@@ -316,7 +354,8 @@ export const LessonController = {
       });
 
       if (created.lesson.is_public) {
-        await LessonModel.upsertStudyHistory(
+        invalidateAllLessonCaches(created.lesson.id);
+        LessonModel.upsertStudyHistory(
           req.user.id,
           created.lesson.id,
           0,
@@ -353,6 +392,7 @@ export const LessonController = {
         return res.status(404).json({ error: 'Lesson not found or unauthorized.' });
       }
 
+      invalidateAllLessonCaches(deleted.id);
       return res.json({ deletedId: deleted.id });
     } catch (err) {
       console.error('Delete lesson error:', err);

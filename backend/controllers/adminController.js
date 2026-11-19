@@ -2,6 +2,7 @@ import { AdminModel } from '../models/adminModel.js';
 import { UserModel } from '../models/userModel.js';
 import { LessonModel } from '../models/lessonModel.js';
 import { LimitModel } from '../models/limitModel.js';
+import { invalidateAllLessonCaches } from '../utils/responseCache.js';
 
 export const AdminController = {
   // GET /api/admin/overview
@@ -135,6 +136,7 @@ export const AdminController = {
         return res.status(404).json({ error: 'User not found.' });
       }
 
+      invalidateAllLessonCaches();
       return res.json({ deletedUserId: deleted.id });
     } catch (err) {
       console.error('Admin delete user error:', err);
@@ -161,6 +163,7 @@ export const AdminController = {
         return res.status(404).json({ error: 'Lesson not found or no valid fields provided.' });
       }
 
+      invalidateAllLessonCaches(lessonId);
       return res.json({ lesson: updated });
     } catch (err) {
       console.error('Admin update lesson meta error:', err);
@@ -177,6 +180,7 @@ export const AdminController = {
         return res.status(404).json({ error: 'Lesson not found.' });
       }
 
+      invalidateAllLessonCaches(lessonId);
       return res.json({ deletedLessonId: deleted.id });
     } catch (err) {
       console.error('Admin delete lesson error:', err);

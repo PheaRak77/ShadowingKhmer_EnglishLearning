@@ -17,6 +17,10 @@ const isLocalDb =
 export const pool = new Pool({
   connectionString,
   ssl: isLocalDb ? false : { rejectUnauthorized: false },
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
+  keepAlive: true,
 });
 
 // Seed starter lesson into PostgreSQL for a user if no lessons exist yet in the database
@@ -257,6 +261,16 @@ export async function ensureSchemaUpToDate() {
       ALTER TABLE users ALTER COLUMN role SET DEFAULT 'student';
       UPDATE users SET role = 'student' WHERE role NOT IN ('admin', 'student');
       UPDATE users SET google_id = NULL WHERE google_id LIKE 'google_%';
+
+      -- Performance indexes for fast public library, lesson opening, vocabulary & study history queries
+      CREATE INDEX IF NOT EXISTS idx_sentences_lesson_order ON sentences (lesson_id, sentence_index);
+      CREATE INDEX IF NOT EXISTS idx_vocabulary_lesson_id ON vocabulary (lesson_id);
+      CREATE INDEX IF NOT EXISTS idx_vocabulary_user_id ON vocabulary (user_id);
+      CREATE INDEX IF NOT EXISTS idx_grammar_lesson_id ON grammar_points (lesson_id);
+      CREATE INDEX IF NOT EXISTS idx_lessons_user_created ON lessons (user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_lessons_public_created ON lessons (is_public, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_study_history_user_time ON student_study_history (user_id, last_studied_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_logs_user_time ON lesson_usage_logs (user_id, created_at DESC);
     `);
 
     // Ensure default Boss Admin account from backend/.env exists in PostgreSQL

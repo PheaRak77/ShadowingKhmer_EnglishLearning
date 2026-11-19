@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, lazy, Suspense } from 'react';
 import YouTube from 'react-youtube';
 import {
   Headphones,
@@ -42,14 +42,40 @@ import {
   Plus,
 } from 'lucide-react';
 import { useAppContext, DEMO_LESSON_DATA } from './reducer/appReducer.js';
-import AuthForm, { GoogleIcon } from './components/AuthForm.jsx';
-import AdminDashboard from './components/AdminDashboard.jsx';
 import AllLessonsLibrary from './components/AllLessonsLibrary.jsx';
-import GrammarCourse from './components/GrammarCourse.jsx';
 import ShadowingControls from './components/ShadowingControls.jsx';
 import ShadowingSpotlightCard from './components/ShadowingSpotlightCard.jsx';
 import ShadowingRightPanel from './components/ShadowingRightPanel.jsx';
+import ConfirmModal from './components/ConfirmModal.jsx';
 import Footer from './components/Footer.jsx';
+
+// Code-split heavy secondary views so first-page load is blazingly fast
+const AuthForm = lazy(() => import('./components/AuthForm.jsx'));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard.jsx'));
+const GrammarCourse = lazy(() => import('./components/GrammarCourse.jsx'));
+
+function GoogleIcon({ className = 'w-4 h-4' }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M23.49 12.27c0-.79-.07-1.54-.2-2.27H12v4.3h6.44a5.5 5.5 0 0 1-2.39 3.61v3h3.87c2.26-2.08 3.57-5.15 3.57-8.64Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.95-1.07 7.93-2.91l-3.87-3c-1.07.72-2.45 1.15-4.06 1.15-3.12 0-5.77-2.11-6.71-4.95H1.29v3.1A12 12 0 0 0 12 24Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.29 14.29A7.2 7.2 0 0 1 4.91 12c0-.79.14-1.56.38-2.29v-3.1H1.29A12 12 0 0 0 0 12c0 1.94.46 3.77 1.29 5.39l4-3.1Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.76c1.76 0 3.34.61 4.59 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.29 6.61l4 3.1c.94-2.84 3.59-4.95 6.71-4.95Z"
+      />
+    </svg>
+  );
+}
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -681,59 +707,132 @@ export default function App() {
     }
   };
 
+  const prefetchedIdsRef = useRef(new Set());
+
+  const handlePrefetchLibraryLesson = (lessonItem) => {
+    const id = lessonItem?.id;
+    if (!id || lessonCache?.[id] || prefetchedIdsRef.current.has(id)) return;
+    prefetchedIdsRef.current.add(id);
+
+    const endpoint = auth.token
+      ? `${API_BASE}/api/lessons/${id}`
+      : `${API_BASE}/api/lessons/public/${id}`;
+    fetch(endpoint, {
+      headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
+    })
+      .then((res) => (res.ok ? parseJsonSafe(res) : null))
+      .then((data) => {
+        if (data?.lesson?.id) {
+          dispatch({ type: 'PREFETCH_LESSON_CACHE', payload: data });
+        }
+      })
+      .catch(() => {
+        prefetchedIdsRef.current.delete(id);
+      });
+  };
+
   const handleOpenLibraryLesson = (lessonItem) => {
     if (!lessonItem?.id) return;
     loadLessonById(lessonItem.id, null, lessonItem.title || '');
   };
 
-  // Delete user's own lesson directly from "My Lessons"
-  const handleDeleteOwnLesson = async (e, lessonItem) => {
+  // Open custom branded modal to confirm removing a lesson from "My Lessons"
+  const handleDeleteOwnLesson = (e, lessonItem) => {
     e.stopPropagation();
-    if (!window.confirm(`Remove "${lessonItem.title}" from My Lessons?`)) {
-      return;
-    }
+    dispatch({
+      type: 'OPEN_CONFIRM_DIALOG',
+      payload: {
+        variant: 'danger',
+        title: 'Remove Lesson from My Lessons?',
+        message: 'This personal lesson will be permanently removed from your saved list.',
+        khmerMessage: 'មេរៀនផ្ទាល់ខ្លួននេះនឹងត្រូវបានលុបចេញពីបញ្ជី My Lessons របស់អ្នក។',
+        targetLabel: lessonItem.title,
+        confirmText: 'Remove Lesson',
+        cancelText: 'Cancel',
+        actionType: 'delete_own_lesson',
+        payload: { id: lessonItem.id, title: lessonItem.title },
+      },
+    });
+  };
+
+  // Unified handler for all Custom Confirmation Dialog actions (Admin & Student)
+  const handleConfirmDialogAction = async (dialog) => {
+    if (!dialog?.actionType) return;
+    dispatch({ type: 'CONFIRM_DIALOG_LOADING', payload: true });
 
     try {
-      const res = await fetch(`${API_BASE}/api/lessons/${lessonItem.id}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${auth.token}`,
-        },
-      });
-
-      if (res.ok) {
-        const remaining = lessonsList.filter((l) => l.id !== lessonItem.id);
-        dispatch({
-          type: 'USER_LESSON_DELETED',
-          payload: { deletedId: lessonItem.id, title: lessonItem.title },
+      if (dialog.actionType === 'delete_admin_lesson') {
+        const { id, title } = dialog.payload || {};
+        const res = await fetch(`${API_BASE}/api/admin/lessons/${id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${auth.token}` },
         });
-
-        // If the deleted lesson was currently active, switch to the next lesson or starter demo
-        if (currentLesson?.id === lessonItem.id) {
-          if (remaining.length > 0) {
-            loadLessonById(remaining[0].id);
-          } else {
-            loadLessonById(0);
-          }
+        if (res.ok) {
+          dispatch({ type: 'ADMIN_LESSON_DELETED', payload: id });
+          dispatch({
+            type: 'SET_NOTIFICATION',
+            payload: { type: 'success', message: `Deleted "${title}" permanently.` },
+          });
+        } else {
+          const data = await parseJsonSafe(res);
+          dispatch({
+            type: 'SET_NOTIFICATION',
+            payload: { type: 'error', message: data.error || 'Failed to delete lesson.' },
+          });
         }
-      } else {
-        const data = await parseJsonSafe(res);
-        dispatch({
-          type: 'SET_NOTIFICATION',
-          payload: {
-            type: 'error',
-            message: data.error || 'Could not remove lesson.',
-          },
+      } else if (dialog.actionType === 'delete_admin_user') {
+        const { id, username } = dialog.payload || {};
+        const res = await fetch(`${API_BASE}/api/admin/users/${id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${auth.token}` },
         });
+        if (res.ok) {
+          dispatch({ type: 'ADMIN_USER_DELETED', payload: id });
+          dispatch({
+            type: 'SET_NOTIFICATION',
+            payload: { type: 'success', message: `Deleted user "${username}".` },
+          });
+        } else {
+          const data = await parseJsonSafe(res);
+          dispatch({
+            type: 'SET_NOTIFICATION',
+            payload: { type: 'error', message: data.error || 'Failed to delete user.' },
+          });
+        }
+      } else if (dialog.actionType === 'delete_own_lesson') {
+        const { id, title } = dialog.payload || {};
+        const res = await fetch(`${API_BASE}/api/lessons/${id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${auth.token}` },
+        });
+        if (res.ok) {
+          const remaining = lessonsList.filter((l) => l.id !== id);
+          dispatch({
+            type: 'USER_LESSON_DELETED',
+            payload: { deletedId: id, title },
+          });
+          if (currentLesson?.id === id) {
+            if (remaining.length > 0) {
+              loadLessonById(remaining[0].id, null, remaining[0].title);
+            } else {
+              loadLessonById(0, null, DEMO_LESSON_DATA.lesson.title);
+            }
+          }
+        } else {
+          const data = await parseJsonSafe(res);
+          dispatch({
+            type: 'SET_NOTIFICATION',
+            payload: { type: 'error', message: data.error || 'Could not remove lesson.' },
+          });
+        }
       }
-    } catch (err) {
+    } catch {
       dispatch({
         type: 'SET_NOTIFICATION',
-        payload: {
-          type: 'error',
-          message: 'Network error while removing lesson.',
-        },
+        payload: { type: 'error', message: 'Network error. Please try again.' },
       });
+    } finally {
+      dispatch({ type: 'CLOSE_CONFIRM_DIALOG' });
     }
   };
 
@@ -1217,33 +1316,44 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#FAF9F6] text-slate-900 flex flex-col">
       {/* =========================================================
-          INITIAL APP ENTRY SPLASH ANIMATION
+          INITIAL APP ENTRY SPLASH (SHADOWINGKHMER FROSTED CARD)
       ========================================================= */}
       {appInitializing && (
-        <div className="fixed inset-0 z-[70] bg-[#FAF9F6] flex flex-col items-center justify-center p-6 animate-fade-in-up">
-          <div className="relative flex items-center justify-center mb-5">
-            <span className="absolute w-20 h-20 rounded-3xl bg-blue-500/15 animate-ping" />
-            <div className="relative w-16 h-16 rounded-2xl bg-[#2563EB] flex items-center justify-center text-white shadow-xl shadow-blue-600/25">
-              <Headphones className="w-8 h-8" />
+        <div className="fixed inset-0 z-[70] bg-[#FAF9F6]/95 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
+          <div className="w-full max-w-sm bg-white/95 backdrop-blur-xl rounded-3xl border border-slate-200/90 shadow-2xl p-7 text-center space-y-4 animate-fade-in-up">
+            <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
+              <span className="absolute inset-0 rounded-2xl bg-blue-500/20 animate-ping" />
+              <div className="relative w-14 h-14 rounded-2xl bg-[#2563EB] flex items-center justify-center text-white shadow-lg shadow-blue-600/25">
+                <Headphones className="w-7 h-7" />
+              </div>
             </div>
-          </div>
 
-          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900">
-            Shadowing<span className="text-[#2563EB]">Khmer</span>
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1 khmer-text">
-            កំពុងរៀបចំមេរៀនភាសាអង់គ្លេស-ខ្មែរសម្រាប់អ្នក...
-          </p>
+            <div className="space-y-1">
+              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900">
+                Shadowing<span className="text-[#2563EB]">Khmer</span>
+              </h1>
+              <p className="text-xs font-medium text-slate-500">
+                English Speaking &amp; Khmer Translation
+              </p>
+              <p className="text-xs text-slate-500 khmer-text pt-0.5">
+                កំពុងរៀបចំមេរៀនភាសាអង់គ្លេស-ខ្មែរសម្រាប់អ្នក...
+              </p>
+            </div>
 
-          {/* Animated 5-Bar Audio Wave */}
-          <div className="flex items-center justify-center gap-1.5 h-8 mt-5">
-            {[0, 0.14, 0.28, 0.42, 0.56].map((delay, i) => (
-              <span
-                key={i}
-                style={{ animationDelay: `${delay}s` }}
-                className="w-1.5 h-6 rounded-full bg-[#2563EB] animate-wave-bar"
-              />
-            ))}
+            {/* Animated 5-Bar Audio Wave */}
+            <div className="flex items-center justify-center gap-1.5 h-6">
+              {[0, 0.12, 0.24, 0.36, 0.48].map((delay, i) => (
+                <span
+                  key={i}
+                  style={{ animationDelay: `${delay}s` }}
+                  className="w-1.5 h-5 rounded-full bg-[#2563EB] animate-wave-bar"
+                />
+              ))}
+            </div>
+
+            <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+              <div className="h-full w-1/2 rounded-full bg-gradient-to-r from-blue-400 via-[#2563EB] to-indigo-500 animate-indeterminate" />
+            </div>
           </div>
         </div>
       )}
@@ -1844,11 +1954,34 @@ export default function App() {
           className="animate-fade-in-up space-y-5 sm:space-y-6"
         >
           {activeScreen === 'admin' && isAdmin ? (
-            <AdminDashboard onOpenLesson={(lessonId) => loadLessonById(lessonId)} />
+            <Suspense
+              fallback={
+                <div className="py-20 flex flex-col items-center justify-center gap-3 text-slate-500">
+                  <Loader2 className="w-7 h-7 animate-spin text-[#2563EB]" />
+                  <span className="text-xs font-semibold">Loading Admin Dashboard...</span>
+                </div>
+              }
+            >
+              <AdminDashboard
+                onOpenLesson={(lessonId, title) => loadLessonById(lessonId, null, title || '')}
+              />
+            </Suspense>
           ) : activeScreen === 'library' ? (
-            <AllLessonsLibrary onOpenLesson={handleOpenLibraryLesson} />
+            <AllLessonsLibrary
+              onOpenLesson={handleOpenLibraryLesson}
+              onPrefetchLesson={handlePrefetchLibraryLesson}
+            />
           ) : activeScreen === 'grammarCourse' ? (
-            <GrammarCourse onSpeak={(text) => speakEnglish(text, playbackRate)} />
+            <Suspense
+              fallback={
+                <div className="py-20 flex flex-col items-center justify-center gap-3 text-slate-500">
+                  <Loader2 className="w-7 h-7 animate-spin text-[#2563EB]" />
+                  <span className="text-xs font-semibold">Loading Grammar Course...</span>
+                </div>
+              }
+            >
+              <GrammarCourse onSpeak={(text) => speakEnglish(text, playbackRate, shadowing.accent)} />
+            </Suspense>
           ) : (
             <>
             {/* =========================================================
@@ -2829,12 +2962,26 @@ export default function App() {
       ========================================================= */}
       {isAuthModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <AuthForm
-            isModal
-            onClose={() => dispatch({ type: 'CLOSE_AUTH_MODAL' })}
-          />
+          <Suspense
+            fallback={
+              <div className="bg-white rounded-3xl p-8 shadow-2xl flex items-center gap-3 text-slate-600">
+                <Loader2 className="w-5 h-5 animate-spin text-[#2563EB]" />
+                <span className="text-xs font-semibold">Loading Sign In...</span>
+              </div>
+            }
+          >
+            <AuthForm
+              isModal
+              onClose={() => dispatch({ type: 'CLOSE_AUTH_MODAL' })}
+            />
+          </Suspense>
         </div>
       )}
+
+      {/* =========================================================
+          CUSTOM SHADOWINGKHMER CONFIRMATION MODAL (DELETE / ACTION)
+      ========================================================= */}
+      <ConfirmModal onConfirm={handleConfirmDialogAction} />
     </div>
   );
 }

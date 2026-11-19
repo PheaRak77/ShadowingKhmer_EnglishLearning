@@ -173,11 +173,31 @@ export const initialState = {
   googleClientId: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
   appInitializing: true,
   isAuthModalOpen: false,
+  confirmDialog: {
+    isOpen: false,
+    variant: 'danger',
+    title: '',
+    message: '',
+    khmerMessage: '',
+    targetLabel: '',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    actionType: null,
+    payload: null,
+    loading: false,
+  },
   activeScreen: 'library', // 'library' (first page) | 'workspace' | 'admin'
   isMobileMenuOpen: false,
   library: {
     loading: false,
-    lessons: [],
+    lessons: (() => {
+      try {
+        const cached = JSON.parse(localStorage.getItem('sk_library_cache_v1') || '[]');
+        return Array.isArray(cached) ? cached : [];
+      } catch {
+        return [];
+      }
+    })(),
     history: [],
     activeTab: 'all', // 'all' | 'history'
     selectedLevel: 'ALL',
@@ -763,12 +783,19 @@ export function appReducer(state, action) {
 
     case 'ADMIN_LESSON_DELETED': {
       const deletedLessonId = action.payload;
+      const nextLibraryLessons = state.library.lessons.filter((l) => l.id !== deletedLessonId);
+      const nextCache = { ...state.lessonCache };
+      delete nextCache[deletedLessonId];
+      try {
+        localStorage.setItem('sk_library_cache_v1', JSON.stringify(nextLibraryLessons));
+      } catch {}
       return {
         ...state,
+        lessonCache: nextCache,
         lessonsList: state.lessonsList.filter((l) => l.id !== deletedLessonId),
         library: {
           ...state.library,
-          lessons: state.library.lessons.filter((l) => l.id !== deletedLessonId),
+          lessons: nextLibraryLessons,
           history: state.library.history.filter((l) => l.id !== deletedLessonId),
         },
         adminDashboard: {
@@ -888,6 +915,10 @@ export function appReducer(state, action) {
           ]
         : state.library.lessons.filter((l) => l.id !== updated.id);
 
+      try {
+        localStorage.setItem('sk_library_cache_v1', JSON.stringify(nextLibraryLessons));
+      } catch {}
+
       return {
         ...state,
         library: {
@@ -904,6 +935,47 @@ export function appReducer(state, action) {
       };
     }
 
+    // --- CUSTOM CONFIRMATION MODAL ---
+    case 'OPEN_CONFIRM_DIALOG':
+      return {
+        ...state,
+        confirmDialog: {
+          ...initialState.confirmDialog,
+          ...action.payload,
+          isOpen: true,
+          loading: false,
+        },
+      };
+
+    case 'CONFIRM_DIALOG_LOADING':
+      return {
+        ...state,
+        confirmDialog: {
+          ...state.confirmDialog,
+          loading: Boolean(action.payload),
+        },
+      };
+
+    case 'CLOSE_CONFIRM_DIALOG':
+      return {
+        ...state,
+        confirmDialog: {
+          ...initialState.confirmDialog,
+        },
+      };
+
+    case 'PREFETCH_LESSON_CACHE': {
+      const data = action.payload;
+      if (!data?.lesson?.id) return state;
+      return {
+        ...state,
+        lessonCache: {
+          ...state.lessonCache,
+          [data.lesson.id]: data,
+        },
+      };
+    }
+
     // --- ALL LESSONS LIBRARY & STUDY HISTORY ---
     case 'LIBRARY_LOAD_START':
       return {
@@ -914,15 +986,20 @@ export function appReducer(state, action) {
         },
       };
 
-    case 'LIBRARY_LOAD_SUCCESS':
+    case 'LIBRARY_LOAD_SUCCESS': {
+      const freshLessons = action.payload || [];
+      try {
+        localStorage.setItem('sk_library_cache_v1', JSON.stringify(freshLessons));
+      } catch {}
       return {
         ...state,
         library: {
           ...state.library,
           loading: false,
-          lessons: action.payload || [],
+          lessons: freshLessons,
         },
       };
+    }
 
     case 'LIBRARY_LOAD_FAILURE':
       return {

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import {
   Bookmark,
   Check,
@@ -14,7 +14,7 @@ import {
 import { useAppContext } from '../reducer/appReducer.js';
 import { analyzeSentenceTokens } from '../utils/phonetics.js';
 
-export default function ShadowingSpotlightCard({
+function ShadowingSpotlightCard({
   activeSentence,
   onWordClick,
   onSpeakSentence,
@@ -319,3 +319,6 @@ export default function ShadowingSpotlightCard({
     </div>
   );
 }
+
+export default memo(ShadowingSpotlightCard);
+

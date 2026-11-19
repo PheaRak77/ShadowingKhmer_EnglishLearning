@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo, useEffect } from 'react';
 import {
   Play,
   Flame,
@@ -52,7 +52,7 @@ function formatRelativeTime(isoString) {
   return `${days}d ago`;
 }
 
-export default function AllLessonsLibrary({ onOpenLesson }) {
+function AllLessonsLibrary({ onOpenLesson, onPrefetchLesson }) {
   const { state, dispatch } = useAppContext();
   const { auth, library, adminDashboard } = state;
   const { loading, lessons, history, activeTab, selectedLevel, searchQuery } = library;
@@ -61,8 +61,20 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
   const isGuest = !auth.user || !auth.token;
   const isAdmin = !isGuest && auth.user?.role === 'admin';
 
-  // Admin-only: Save edited title / level / tags directly on a card
+  useEffect(() => {
+    if (!editingLessonId) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        dispatch({ type: 'ADMIN_OPEN_LESSON_EDIT', payload: null });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [editingLessonId, dispatch]);
+
+  // Admin-only: Save edited title / level / tags from the Edit Lesson modal
   const handleAdminSaveEdit = async (e, lessonId) => {
+    e.preventDefault();
     e.stopPropagation();
     try {
       const res = await fetch(`${API_BASE}/api/admin/lessons/${lessonId}`, {
@@ -99,36 +111,23 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
     }
   };
 
-  // Admin-only: Delete a lesson directly from the All Lessons page
-  const handleAdminDeleteLesson = async (e, lesson) => {
+  // Admin-only: Open custom Delete Lesson confirmation modal
+  const handleAdminDeleteLesson = (e, lesson) => {
     e.stopPropagation();
-    if (!window.confirm(`Delete "${lesson.title}" from All Lessons permanently?`)) {
-      return;
-    }
-    try {
-      const res = await fetch(`${API_BASE}/api/admin/lessons/${lesson.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${auth.token}` },
-      });
-      if (res.ok) {
-        dispatch({ type: 'ADMIN_LESSON_DELETED', payload: lesson.id });
-        dispatch({
-          type: 'SET_NOTIFICATION',
-          payload: { type: 'success', message: `Deleted "${lesson.title}" from All Lessons.` },
-        });
-      } else {
-        const data = await parseJsonSafe(res);
-        dispatch({
-          type: 'SET_NOTIFICATION',
-          payload: { type: 'error', message: data.error || 'Failed to delete lesson.' },
-        });
-      }
-    } catch {
-      dispatch({
-        type: 'SET_NOTIFICATION',
-        payload: { type: 'error', message: 'Network error deleting lesson.' },
-      });
-    }
+    dispatch({
+      type: 'OPEN_CONFIRM_DIALOG',
+      payload: {
+        variant: 'danger',
+        title: 'Delete Video Lesson?',
+        message: 'This video lesson will be permanently removed from All Lessons for all students.',
+        khmerMessage: 'វីដេអូមេរៀននេះនឹងត្រូវបានលុបចេញជាអចិន្ត្រៃយ៍ពី All Lessons។',
+        targetLabel: lesson.title,
+        confirmText: 'Delete Lesson',
+        cancelText: 'Cancel',
+        actionType: 'delete_admin_lesson',
+        payload: { id: lesson.id, title: lesson.title },
+      },
+    });
   };
 
   // Map studied lesson IDs for quick lookup on "All Lessons" cards
@@ -330,14 +329,12 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
             const practicedCount = studiedInfo?.practiced_sentences || 0;
             const studiedPct =
               sentenceCount > 0 ? Math.min(100, Math.round((practicedCount / sentenceCount) * 100)) : 0;
-            const isEditingThis = isAdmin && editingLessonId === lesson.id;
 
             return (
               <div
                 key={`${activeTab}-${lesson.id}`}
-                onClick={() => {
-                  if (!isEditingThis) onOpenLesson(lesson);
-                }}
+                onClick={() => onOpenLesson(lesson)}
+                onMouseEnter={() => onPrefetchLesson?.(lesson)}
                 className="group bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-lg hover:border-blue-200 hover:-translate-y-0.5 transition-all duration-200 overflow-hidden cursor-pointer flex flex-col"
               >
                 {/* Thumbnail Header with Overlays */}
@@ -346,6 +343,7 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
                     src={`https://i.ytimg.com/vi/${lesson.video_id}/hqdefault.jpg`}
                     alt={lesson.title}
                     loading="lazy"
+                    decoding="async"
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-black/25" />
@@ -361,13 +359,11 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
                     <span>{lesson.view_count || 0}</span>
                   </span>
 
-                  {!isEditingThis && (
-                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <div className="w-12 h-12 rounded-full bg-[#2563EB]/95 text-white flex items-center justify-center shadow-xl">
-                        <Play className="w-5 h-5 fill-white ml-0.5" />
-                      </div>
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="w-12 h-12 rounded-full bg-[#2563EB]/95 text-white flex items-center justify-center shadow-xl">
+                      <Play className="w-5 h-5 fill-white ml-0.5" />
                     </div>
-                  )}
+                  </div>
 
                   <span className="absolute bottom-2.5 left-2.5 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-black/70 backdrop-blur-sm text-white">
                     <ListVideo className="w-3 h-3 text-blue-300" />
@@ -384,145 +380,193 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
 
                 {/* Card Body */}
                 <div className="p-3.5 flex-1 flex flex-col justify-between gap-2.5">
-                  {isEditingThis ? (
-                    <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="text"
-                        value={lessonEditForm.title}
-                        onChange={(e) =>
-                          dispatch({
-                            type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
-                            payload: { field: 'title', value: e.target.value },
-                          })
-                        }
-                        className="w-full px-2.5 py-1.5 rounded-lg border border-blue-300 text-xs font-bold text-slate-900"
-                        placeholder="Lesson title"
-                      />
-                      <div className="flex items-center gap-1.5">
-                        <select
-                          value={lessonEditForm.cefrLevel}
-                          onChange={(e) =>
-                            dispatch({
-                              type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
-                              payload: { field: 'cefrLevel', value: e.target.value },
-                            })
-                          }
-                          className="px-2 py-1 rounded-lg border border-slate-300 text-xs font-bold"
-                        >
-                          {['A1', 'A2', 'B1', 'B2', 'C1'].map((lvl) => (
-                            <option key={lvl} value={lvl}>
-                              {lvl}
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          type="text"
-                          value={lessonEditForm.tags}
-                          onChange={(e) =>
-                            dispatch({
-                              type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
-                              payload: { field: 'tags', value: e.target.value },
-                            })
-                          }
-                          className="flex-1 min-w-0 px-2 py-1 rounded-lg border border-slate-300 text-xs"
-                          placeholder="Tags..."
-                        />
-                      </div>
-                      <div className="flex items-center justify-end gap-1.5 pt-1">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            dispatch({ type: 'ADMIN_OPEN_LESSON_EDIT', payload: null });
-                          }}
-                          className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 text-[11px] font-semibold cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => handleAdminSaveEdit(e, lesson.id)}
-                          className="px-3 py-1 rounded-lg bg-[#2563EB] text-white text-[11px] font-bold cursor-pointer"
-                        >
-                          Save
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <h3 className="text-[13.5px] font-bold text-slate-900 leading-snug line-clamp-2 group-hover:text-[#2563EB] transition-colors">
-                        {lesson.title}
-                      </h3>
+                  <h3 className="text-[13.5px] font-bold text-slate-900 leading-snug line-clamp-2 group-hover:text-[#2563EB] transition-colors">
+                    {lesson.title}
+                  </h3>
 
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {tagsList.map((tag, idx) => (
-                              <span
-                                key={idx}
-                                className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium border border-slate-200/70"
-                              >
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {tagsList.map((tag, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium border border-slate-200/70"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
 
-                          {isAdmin && (
-                            <div
-                              className="inline-flex items-center gap-1 shrink-0"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  dispatch({ type: 'ADMIN_OPEN_LESSON_EDIT', payload: lesson });
-                                }}
-                                className="p-1 rounded-lg text-slate-400 hover:text-[#2563EB] hover:bg-blue-50 cursor-pointer"
-                                title="Edit lesson level, tags, or title"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => handleAdminDeleteLesson(e, lesson)}
-                                className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
-                                title="Delete lesson"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          )}
+                      {isAdmin && (
+                        <div
+                          className="inline-flex items-center gap-1 shrink-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              dispatch({ type: 'ADMIN_OPEN_LESSON_EDIT', payload: lesson });
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-[#2563EB] hover:bg-blue-50 transition-colors cursor-pointer"
+                            title="Edit lesson title, level, or tags"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleAdminDeleteLesson(e, lesson)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                            title="Delete lesson"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
+                      )}
+                    </div>
 
-                        {studiedInfo && (
-                          <div className="pt-2 border-t border-slate-100 space-y-1">
-                            <div className="flex items-center justify-between text-[11px] text-slate-500">
-                              <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
-                                <Clock className="w-3 h-3" />
-                                <span>{formatRelativeTime(studiedInfo.last_studied_at)}</span>
-                              </span>
-                              <span className="font-semibold text-slate-700">
-                                {practicedCount}/{sentenceCount} practiced
-                              </span>
-                            </div>
-                            <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                              <div
-                                className="h-full rounded-full bg-emerald-500 transition-all"
-                                style={{ width: `${Math.max(studiedPct, 8)}%` }}
-                              />
-                            </div>
-                          </div>
-                        )}
+                    {studiedInfo && (
+                      <div className="pt-2 border-t border-slate-100 space-y-1">
+                        <div className="flex items-center justify-between text-[11px] text-slate-500">
+                          <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
+                            <Clock className="w-3 h-3" />
+                            <span>{formatRelativeTime(studiedInfo.last_studied_at)}</span>
+                          </span>
+                          <span className="font-semibold text-slate-700">
+                            {practicedCount}/{sentenceCount} practiced
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-emerald-500 transition-all"
+                            style={{ width: `${Math.max(studiedPct, 8)}%` }}
+                          />
+                        </div>
                       </div>
-                    </>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             );
           })}
         </div>
       )}
+
+      {/* Custom Branded Edit Lesson Modal (Admin) */}
+      {isAdmin && editingLessonId && (
+        <div
+          className="fixed inset-0 z-[75] bg-slate-900/45 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => dispatch({ type: 'ADMIN_OPEN_LESSON_EDIT', payload: null })}
+        >
+          <form
+            onSubmit={(e) => handleAdminSaveEdit(e, editingLessonId)}
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-md bg-white/98 backdrop-blur-xl rounded-3xl border border-slate-200/90 shadow-2xl p-6 space-y-4 animate-fade-in-up"
+          >
+            <button
+              type="button"
+              onClick={() => dispatch({ type: 'ADMIN_OPEN_LESSON_EDIT', payload: null })}
+              className="absolute top-4 right-4 p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              aria-label="Close edit modal"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-200 text-[#2563EB] flex items-center justify-center shrink-0">
+                <Pencil className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">Edit Video Lesson</h3>
+                <p className="text-xs text-slate-500 khmer-text">
+                  កែសម្រួលចំណងជើង កម្រិត (CEFR) និងស្លាកមេរៀន
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3 pt-1">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                  Lesson Title
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={lessonEditForm.title}
+                  onChange={(e) =>
+                    dispatch({
+                      type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
+                      payload: { field: 'title', value: e.target.value },
+                    })
+                  }
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white focus:border-[#2563EB] focus:ring-2 focus:ring-blue-600/15 focus:outline-none text-xs sm:text-sm font-semibold text-slate-900"
+                  placeholder="Enter lesson title..."
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                    CEFR Level
+                  </label>
+                  <select
+                    value={lessonEditForm.cefrLevel}
+                    onChange={(e) =>
+                      dispatch({
+                        type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
+                        payload: { field: 'cefrLevel', value: e.target.value },
+                      })
+                    }
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white focus:border-[#2563EB] focus:outline-none text-xs sm:text-sm font-bold text-slate-800"
+                  >
+                    {['A1', 'A2', 'B1', 'B2', 'C1'].map((lvl) => (
+                      <option key={lvl} value={lvl}>
+                        Level {lvl}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                    Tags (comma separated)
+                  </label>
+                  <input
+                    type="text"
+                    value={lessonEditForm.tags}
+                    onChange={(e) =>
+                      dispatch({
+                        type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
+                        payload: { field: 'tags', value: e.target.value },
+                      })
+                    }
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white focus:border-[#2563EB] focus:outline-none text-xs sm:text-sm text-slate-800"
+                    placeholder="Daily Conversation, Story"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => dispatch({ type: 'ADMIN_OPEN_LESSON_EDIT', payload: null })}
+                className="py-2.5 px-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs sm:text-sm font-bold transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="py-2.5 px-4 rounded-xl bg-[#2563EB] hover:bg-blue-700 text-white text-xs sm:text-sm font-bold shadow-sm shadow-blue-600/20 transition-all cursor-pointer"
+              >
+                Save Changes
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
+
+export default memo(AllLessonsLibrary);

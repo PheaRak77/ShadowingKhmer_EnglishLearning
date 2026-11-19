@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import {
   Search,
   Volume2,
@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { useAppContext } from '../reducer/appReducer.js';
 
-export default function ShadowingRightPanel({
+function ShadowingRightPanel({
   filteredSentences,
   activeSentenceRef,
   isGuest,
@@ -533,3 +533,6 @@ export default function ShadowingRightPanel({
     </div>
   );
 }
+
+export default memo(ShadowingRightPanel);
+

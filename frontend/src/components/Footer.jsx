@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Headphones, Globe, Mail, Github, ExternalLink, Heart, Sparkles } from 'lucide-react';
 
-export default function Footer() {
+function Footer() {
   return (
     <footer className="mt-12 bg-white border-t border-slate-200/90 text-slate-600">
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
@@ -180,4 +180,6 @@ export default function Footer() {
     </footer>
   );
 }
+
+export default memo(Footer);
 

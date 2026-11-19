@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import {
   SkipBack,
   SkipForward,
@@ -29,7 +29,7 @@ const MODE_OPTIONS = [
 ];
 const PAUSE_PERCENT_OPTIONS = [0, 25, 50, 75, 100];
 
-export default function ShadowingControls({
+function ShadowingControls({
   activeSentence,
   onPrev,
   onReplay,
@@ -428,3 +428,6 @@ export default function ShadowingControls({
     </div>
   );
 }
+
+export default memo(ShadowingControls);
+

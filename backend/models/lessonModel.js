@@ -195,62 +195,83 @@ export const LessonModel = {
       );
       const lesson = lessonInsert.rows[0];
 
-      const insertedSentences = [];
-      for (let idx = 0; idx < extractedSentences.length; idx++) {
-        const s = extractedSentences[idx];
-        const khmerTranslation =
-          (Array.isArray(aiData.translations) && aiData.translations[idx]) ||
-          'មិនទាន់មានការបកប្រែ';
-
+      // Batch multi-row INSERT for sentences (1 DB round-trip instead of N sequential inserts)
+      let insertedSentences = [];
+      if (extractedSentences.length > 0) {
+        const sValues = [];
+        const sPlaceholders = extractedSentences.map((s, idx) => {
+          const khmerTranslation =
+            (Array.isArray(aiData.translations) && aiData.translations[idx]) ||
+            'មិនទាន់មានការបកប្រែ';
+          const base = idx * 6;
+          sValues.push(lesson.id, idx + 1, s.english_text, khmerTranslation, s.start_time, s.end_time);
+          return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`;
+        });
         const sentenceRes = await client.query(
           `INSERT INTO sentences (lesson_id, sentence_index, english_text, khmer_text, start_time, end_time)
-           VALUES ($1, $2, $3, $4, $5, $6)
+           VALUES ${sPlaceholders.join(', ')}
            RETURNING *`,
-          [lesson.id, idx + 1, s.english_text, khmerTranslation, s.start_time, s.end_time]
+          sValues
         );
-        insertedSentences.push(sentenceRes.rows[0]);
+        insertedSentences = sentenceRes.rows;
       }
 
-      const insertedVocabulary = [];
-      const vocabList = Array.isArray(aiData.vocabulary) ? aiData.vocabulary : [];
-      for (const v of vocabList) {
-        if (!v.word || !v.khmer) continue;
-        const vocabRes = await client.query(
-          `INSERT INTO vocabulary (user_id, lesson_id, word, ipa, part_of_speech, khmer_meaning, example_sentence)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           RETURNING *`,
-          [
+      // Batch multi-row INSERT for vocabulary
+      let insertedVocabulary = [];
+      const validVocab = (Array.isArray(aiData.vocabulary) ? aiData.vocabulary : []).filter(
+        (v) => v && v.word && v.khmer
+      );
+      if (validVocab.length > 0) {
+        const vValues = [];
+        const vPlaceholders = validVocab.map((v, idx) => {
+          const base = idx * 7;
+          vValues.push(
             userId,
             lesson.id,
             v.word.trim(),
             v.ipa || '',
             v.pos || 'word',
             v.khmer,
-            v.example || '',
-          ]
+            v.example || ''
+          );
+          return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`;
+        });
+        const vocabRes = await client.query(
+          `INSERT INTO vocabulary (user_id, lesson_id, word, ipa, part_of_speech, khmer_meaning, example_sentence)
+           VALUES ${vPlaceholders.join(', ')}
+           RETURNING *`,
+          vValues
         );
-        insertedVocabulary.push(vocabRes.rows[0]);
+        insertedVocabulary = vocabRes.rows;
       }
 
-      const insertedGrammar = [];
-      const grammarList = Array.isArray(aiData.grammar) ? aiData.grammar : [];
-      for (const g of grammarList) {
-        if (!g.title) continue;
-        const grammarRes = await client.query(
-          `INSERT INTO grammar_points (lesson_id, stage, title, explanation_en, explanation_km, example_en, example_km)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           RETURNING *`,
-          [
+      // Batch multi-row INSERT for grammar points
+      let insertedGrammar = [];
+      const validGrammar = (Array.isArray(aiData.grammar) ? aiData.grammar : []).filter(
+        (g) => g && g.title
+      );
+      if (validGrammar.length > 0) {
+        const gValues = [];
+        const gPlaceholders = validGrammar.map((g, idx) => {
+          const base = idx * 7;
+          gValues.push(
             lesson.id,
             g.stage || 'Stage 1: The basics',
             g.title,
             g.explanation_en || '',
             g.explanation_km || '',
             g.example_en || '',
-            g.example_km || '',
-          ]
+            g.example_km || ''
+          );
+          return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`;
+        });
+        const grammarRes = await client.query(
+          `INSERT INTO grammar_points (lesson_id, stage, title, explanation_en, explanation_km, example_en, example_km)
+           VALUES ${gPlaceholders.join(', ')}
+           RETURNING *`,
+          gValues
         );
-        insertedGrammar.push(grammarRes.rows[0]);
+        insertedGrammar = grammarRes.rows;
       }
 
       await client.query('COMMIT');

@@ -117,60 +117,38 @@ export default function AdminDashboard({ onOpenLesson }) {
     }
   };
 
-  const handleDeleteUser = async (userId, username) => {
-    if (!window.confirm(`Are you sure you want to delete user "${username}" and their lessons?`)) {
-      return;
-    }
-    try {
-      const res = await fetch(`${API_BASE}/api/admin/users/${userId}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${auth.token}`,
-        },
-      });
-      if (res.ok) {
-        dispatch({ type: 'ADMIN_USER_DELETED', payload: userId });
-      } else {
-        const data = await parseJsonSafe(res);
-        dispatch({
-          type: 'SET_NOTIFICATION',
-          payload: { type: 'error', message: data.error || 'Failed to delete user.' },
-        });
-      }
-    } catch (err) {
-      dispatch({
-        type: 'SET_NOTIFICATION',
-        payload: { type: 'error', message: 'Network error while deleting user.' },
-      });
-    }
+  const handleDeleteUser = (userId, username) => {
+    dispatch({
+      type: 'OPEN_CONFIRM_DIALOG',
+      payload: {
+        variant: 'danger',
+        title: 'Delete User Account?',
+        message: 'This will permanently delete this account and all personal lessons created by this user.',
+        khmerMessage: 'គណនីអ្នកប្រើប្រាស់នេះ និងមេរៀនផ្ទាល់ខ្លួនរបស់គាត់នឹងត្រូវបានលុបជាអចិន្ត្រៃយ៍។',
+        targetLabel: username,
+        confirmText: 'Delete User',
+        cancelText: 'Cancel',
+        actionType: 'delete_admin_user',
+        payload: { id: userId, username },
+      },
+    });
   };
 
-  const handleDeleteLesson = async (lessonId, title) => {
-    if (!window.confirm(`Delete lesson "${title}" permanently?`)) {
-      return;
-    }
-    try {
-      const res = await fetch(`${API_BASE}/api/admin/lessons/${lessonId}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${auth.token}`,
-        },
-      });
-      if (res.ok) {
-        dispatch({ type: 'ADMIN_LESSON_DELETED', payload: lessonId });
-      } else {
-        const data = await parseJsonSafe(res);
-        dispatch({
-          type: 'SET_NOTIFICATION',
-          payload: { type: 'error', message: data.error || 'Failed to delete lesson.' },
-        });
-      }
-    } catch (err) {
-      dispatch({
-        type: 'SET_NOTIFICATION',
-        payload: { type: 'error', message: 'Network error while deleting lesson.' },
-      });
-    }
+  const handleDeleteLesson = (lessonId, title) => {
+    dispatch({
+      type: 'OPEN_CONFIRM_DIALOG',
+      payload: {
+        variant: 'danger',
+        title: 'Delete Lesson Permanently?',
+        message: 'This lesson, its sentences, vocabulary, and grammar notes will be removed permanently.',
+        khmerMessage: 'មេរៀន ប្រយោគ ពាក្យសព្ទ និងវេយ្យាករណ៍ទាំងអស់នៃវីដេអូនេះនឹងត្រូវបានលុបជាអចិន្ត្រៃយ៍។',
+        targetLabel: title,
+        confirmText: 'Delete Lesson',
+        cancelText: 'Cancel',
+        actionType: 'delete_admin_lesson',
+        payload: { id: lessonId, title },
+      },
+    });
   };
 
   const handleSaveGlobalLimit = async (e) => {
@@ -1128,7 +1106,7 @@ export default function AdminDashboard({ onOpenLesson }) {
 
                           <button
                             type="button"
-                            onClick={() => onOpenLesson(l.id)}
+                            onClick={() => onOpenLesson(l.id, l.title)}
                             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-[#2563EB] text-xs font-semibold cursor-pointer"
                           >
                             <ExternalLink className="w-3.5 h-3.5" />
