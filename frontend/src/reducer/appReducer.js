@@ -252,6 +252,21 @@ export const initialState = {
     searchQuery: '',
     selectedStage: 'ALL',
   },
+  grammarCourse: {
+    activeLessonId: null,
+    selectedStageId: 'ALL',
+    searchQuery: '',
+    langMode: 'bilingual', // 'bilingual' | 'en' | 'km'
+    answers: {}, // { [exerciseIdx]: selectedOptionIdx }
+    completedLessonIds: (() => {
+      try {
+        const saved = JSON.parse(localStorage.getItem('sk_grammar_completed') || '[]');
+        return Array.isArray(saved) ? saved : [];
+      } catch {
+        return [];
+      }
+    })(),
+  },
   playerSize: 'large',
 };
 
@@ -1289,6 +1304,91 @@ export function appReducer(state, action) {
         ...state,
         playerSize: state.playerSize === 'large' ? 'normal' : 'large',
       };
+
+    // --- STEP-BY-STEP GRAMMAR COURSE ---
+    case 'GRAMMAR_COURSE_OPEN_LESSON':
+      return {
+        ...state,
+        grammarCourse: {
+          ...state.grammarCourse,
+          activeLessonId: action.payload,
+          answers: {},
+        },
+      };
+
+    case 'GRAMMAR_COURSE_BACK_TO_LIST':
+      return {
+        ...state,
+        grammarCourse: {
+          ...state.grammarCourse,
+          activeLessonId: null,
+          answers: {},
+        },
+      };
+
+    case 'GRAMMAR_COURSE_SET_SEARCH':
+      return {
+        ...state,
+        grammarCourse: {
+          ...state.grammarCourse,
+          searchQuery: action.payload,
+        },
+      };
+
+    case 'GRAMMAR_COURSE_SET_STAGE':
+      return {
+        ...state,
+        grammarCourse: {
+          ...state.grammarCourse,
+          selectedStageId: action.payload,
+        },
+      };
+
+    case 'GRAMMAR_COURSE_SET_LANG':
+      return {
+        ...state,
+        grammarCourse: {
+          ...state.grammarCourse,
+          langMode: action.payload,
+        },
+      };
+
+    case 'GRAMMAR_COURSE_ANSWER_EXERCISE':
+      return {
+        ...state,
+        grammarCourse: {
+          ...state.grammarCourse,
+          answers: {
+            ...state.grammarCourse.answers,
+            [action.payload.exerciseIndex]: action.payload.optionIndex,
+          },
+        },
+      };
+
+    case 'GRAMMAR_COURSE_RESET_EXERCISES':
+      return {
+        ...state,
+        grammarCourse: {
+          ...state.grammarCourse,
+          answers: {},
+        },
+      };
+
+    case 'GRAMMAR_COURSE_MARK_COMPLETE': {
+      const lessonId = action.payload;
+      const existing = state.grammarCourse.completedLessonIds || [];
+      const updated = existing.includes(lessonId) ? existing : [...existing, lessonId];
+      try {
+        localStorage.setItem('sk_grammar_completed', JSON.stringify(updated));
+      } catch {}
+      return {
+        ...state,
+        grammarCourse: {
+          ...state.grammarCourse,
+          completedLessonIds: updated,
+        },
+      };
+    }
 
     default:
       return state;

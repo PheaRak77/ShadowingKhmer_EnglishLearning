@@ -41,6 +41,7 @@ import { useAppContext, DEMO_LESSON_DATA } from './reducer/appReducer.js';
 import AuthForm, { GoogleIcon } from './components/AuthForm.jsx';
 import AdminDashboard from './components/AdminDashboard.jsx';
 import AllLessonsLibrary from './components/AllLessonsLibrary.jsx';
+import GrammarCourse from './components/GrammarCourse.jsx';
 import Footer from './components/Footer.jsx';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -1094,7 +1095,6 @@ export default function App() {
               { id: 'lesson', label: 'Shadowing' },
               { id: 'dictation', label: 'Dictation' },
               { id: 'vocabulary', label: 'Vocabulary' },
-              { id: 'grammar', label: 'Grammar' },
             ].map((navItem) => {
               const isActive =
                 activeScreen === 'workspace' && practiceMode === navItem.id;
@@ -1118,6 +1118,21 @@ export default function App() {
                 </button>
               );
             })}
+
+            <button
+              type="button"
+              onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'grammarCourse' })}
+              className={`relative py-4 text-[13px] transition-colors cursor-pointer whitespace-nowrap ${
+                activeScreen === 'grammarCourse'
+                  ? 'font-semibold text-slate-900'
+                  : 'font-medium text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <span>Grammar</span>
+              {activeScreen === 'grammarCourse' && (
+                <span className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full bg-[#2563EB]" />
+              )}
+            </button>
 
             <button
               type="button"
@@ -1391,7 +1406,6 @@ export default function App() {
                 { id: 'lesson', label: 'Shadowing' },
                 { id: 'dictation', label: 'Dictation' },
                 { id: 'vocabulary', label: 'Vocabulary' },
-                { id: 'grammar', label: 'Grammar' },
               ].map((navItem) => {
                 const isActive = activeScreen === 'workspace' && practiceMode === navItem.id;
                 const isLocked = isGuest && navItem.id !== 'lesson';
@@ -1414,6 +1428,17 @@ export default function App() {
                   </button>
                 );
               })}
+              <button
+                type="button"
+                onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'grammarCourse' })}
+                className={`py-2 px-3 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer ${
+                  activeScreen === 'grammarCourse'
+                    ? 'bg-[#2563EB] text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                Grammar
+              </button>
               {isAdmin && (
                 <button
                   type="button"
@@ -1549,6 +1574,8 @@ export default function App() {
             <AdminDashboard onOpenLesson={(lessonId) => loadLessonById(lessonId)} />
           ) : activeScreen === 'library' ? (
             <AllLessonsLibrary onOpenLesson={handleOpenLibraryLesson} />
+          ) : activeScreen === 'grammarCourse' ? (
+            <GrammarCourse onSpeak={(text) => speakEnglish(text, playbackRate)} />
           ) : (
             <>
             {/* Quick Back to All Lessons Breadcrumb */}
