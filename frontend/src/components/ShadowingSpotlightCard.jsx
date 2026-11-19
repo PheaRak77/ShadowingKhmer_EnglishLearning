@@ -249,7 +249,7 @@ function ShadowingSpotlightCard({
           }
           className={`h-9 px-3.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 transition-all cursor-pointer ${
             showIPA
-              ? 'border-slate-900 bg-blue-50/40 text-slate-900 shadow-xs'
+              ? 'border-slate-900 bg-blue-50/40 text-slate-900 shadow-sm'
               : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
           }`}
         >

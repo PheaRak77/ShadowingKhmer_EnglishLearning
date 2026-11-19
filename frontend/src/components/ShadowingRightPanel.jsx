@@ -74,7 +74,7 @@ function ShadowingRightPanel({
               }
               className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
                 isActive
-                  ? 'bg-slate-900 text-white shadow-xs'
+                  ? 'bg-slate-900 text-white shadow-sm'
                   : 'bg-slate-100/80 text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'
               }`}
             >
@@ -153,7 +153,7 @@ function ShadowingRightPanel({
                 <button
                   type="button"
                   onClick={() => onSpeakText(selectedWordPopup.cleanWord)}
-                  className="w-8 h-8 rounded-lg bg-[#2563EB] text-white flex items-center justify-center shadow-xs hover:bg-blue-700 cursor-pointer shrink-0"
+                  className="w-8 h-8 rounded-lg bg-[#2563EB] text-white flex items-center justify-center shadow-sm hover:bg-blue-700 cursor-pointer shrink-0"
                   title="Pronounce word"
                 >
                   <Volume2 className="w-4 h-4" />
@@ -248,7 +248,7 @@ function ShadowingRightPanel({
                     title={isCompleted ? 'Marked as practiced' : 'Mark as practiced'}
                     className={`w-7 h-7 rounded-full text-xs font-bold flex items-center justify-center shrink-0 mt-0.5 transition-all cursor-pointer ${
                       isActive
-                        ? 'bg-[#2563EB] text-white shadow-xs'
+                        ? 'bg-[#2563EB] text-white shadow-sm'
                         : isCompleted
                         ? 'bg-emerald-50 border border-emerald-200 text-emerald-600'
                         : 'bg-white border border-slate-200 text-slate-500 group-hover:border-blue-300 group-hover:text-[#2563EB]'

@@ -1994,7 +1994,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'library' })}
-                  className="w-8 h-8 rounded-full bg-white border border-slate-200/90 hover:border-blue-300 hover:bg-blue-50 text-slate-600 hover:text-[#2563EB] flex items-center justify-center shadow-2xs transition-all cursor-pointer shrink-0"
+                  className="w-8 h-8 rounded-full bg-white border border-slate-200/90 hover:border-blue-300 hover:bg-blue-50 text-slate-600 hover:text-[#2563EB] flex items-center justify-center shadow-sm transition-all cursor-pointer shrink-0"
                   title="Back to All Lessons"
                 >
                   <ArrowLeft className="w-4 h-4" />
@@ -2008,7 +2008,7 @@ export default function App() {
                       payload: { showYoutubeCreator: !shadowing.showYoutubeCreator },
                     })
                   }
-                  className={`h-8 px-2.5 rounded-full border text-xs font-semibold inline-flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer shrink-0 ${
+                  className={`h-8 px-2.5 rounded-full border text-xs font-semibold inline-flex items-center gap-1.5 shadow-sm transition-all cursor-pointer shrink-0 ${
                     shadowing.showYoutubeCreator || creatingLesson
                       ? 'bg-rose-50 border-rose-200 text-rose-600'
                       : 'bg-white border-slate-200/90 hover:border-blue-300 text-slate-600 hover:text-[#2563EB]'
@@ -2029,7 +2029,7 @@ export default function App() {
 
               {/* Center: Segmented Practice Mode Pill Bar (Matches Image 1) */}
               <div className="order-3 sm:order-2 w-full sm:w-auto flex justify-center">
-                <div className="inline-flex items-center gap-0.5 p-1 rounded-full bg-white border border-slate-200/90 shadow-xs overflow-x-auto max-w-full">
+                <div className="inline-flex items-center gap-0.5 p-1 rounded-full bg-white border border-slate-200/90 shadow-sm overflow-x-auto max-w-full">
                   {[
                     { id: 'lesson', label: 'Shadowing' },
                     { id: 'dictation', label: 'Dictation' },
@@ -2045,7 +2045,7 @@ export default function App() {
                         onClick={() => handleSelectPracticeMode(tab.id)}
                         className={`px-3.5 sm:px-4 py-1.5 rounded-full text-xs font-semibold inline-flex items-center gap-1 transition-all whitespace-nowrap cursor-pointer ${
                           isActive
-                            ? 'bg-[#2563EB] text-white shadow-xs'
+                            ? 'bg-[#2563EB] text-white shadow-sm'
                             : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
                         }`}
                       >
@@ -2062,7 +2062,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => dispatch({ type: 'SHADOWING_TOGGLE_TIMER' })}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border text-xs font-bold tabular-nums shadow-2xs transition-all cursor-pointer ${
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border text-xs font-bold tabular-nums shadow-sm transition-all cursor-pointer ${
                     shadowing.isTimerRunning
                       ? 'border-slate-200/90 text-slate-800 hover:border-blue-300'
                       : 'border-amber-200 bg-amber-50/70 text-amber-800'
@@ -2242,7 +2242,7 @@ export default function App() {
             {/* Slim Dismissible Notification Toast */}
             {notification && (
               <div
-                className={`px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-medium flex items-center justify-between gap-3 shadow-2xs ${
+                className={`px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-medium flex items-center justify-between gap-3 shadow-sm ${
                   notification.type === 'error'
                     ? 'bg-rose-50 text-rose-700 border border-rose-200'
                     : notification.type === 'info'
@@ -2292,7 +2292,7 @@ export default function App() {
                               },
                             })
                           }
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/92 hover:bg-white text-slate-800 text-xs font-semibold shadow-sm transition-all cursor-pointer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/90 hover:bg-white text-slate-800 text-xs font-semibold shadow-sm transition-all cursor-pointer"
                         >
                           <SlidersHorizontal className="w-3 h-3 text-slate-500" />
                           <span>{playerSizeLabel}</span>

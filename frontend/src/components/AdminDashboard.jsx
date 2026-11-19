@@ -1252,7 +1252,7 @@ export default function AdminDashboard({ onOpenLesson }) {
               handleSaveLessonEdit(editingLessonId);
             }}
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-md bg-white/98 backdrop-blur-xl rounded-3xl border border-slate-200/90 shadow-2xl p-6 space-y-4 animate-fade-in-up"
+            className="relative w-full max-w-md bg-white rounded-3xl border border-slate-200 shadow-2xl p-6 space-y-4 animate-fade-in-up"
           >
             <button
               type="button"
@@ -1370,7 +1370,7 @@ export default function AdminDashboard({ onOpenLesson }) {
                 handleSaveUserCustomLimit(editingUserLimitId, false);
               }}
               onClick={(e) => e.stopPropagation()}
-              className="relative w-full max-w-md bg-white/98 backdrop-blur-xl rounded-3xl border border-slate-200/90 shadow-2xl p-6 space-y-4 animate-fade-in-up"
+              className="relative w-full max-w-md bg-white rounded-3xl border border-slate-200 shadow-2xl p-6 space-y-4 animate-fade-in-up"
             >
               <button
                 type="button"
