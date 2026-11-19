@@ -17,7 +17,6 @@ import {
   RotateCcw,
   Globe,
   EyeOff,
-  PlusCircle,
   Pencil,
   Flame,
 } from 'lucide-react';
@@ -54,7 +53,6 @@ export default function AdminDashboard({ onOpenLesson }) {
     savingLimit,
     editingUserLimitId,
     userLimitForm,
-    createLibraryForm,
     editingLessonId,
     lessonEditForm,
   } = adminDashboard;
@@ -277,53 +275,6 @@ export default function AdminDashboard({ onOpenLesson }) {
       dispatch({
         type: 'SET_NOTIFICATION',
         payload: { type: 'error', message: 'Network error resetting quota.' },
-      });
-    }
-  };
-
-  const handleAdminCreateLibraryLesson = async (e) => {
-    e.preventDefault();
-    if (!createLibraryForm.videoUrl.trim() || createLibraryForm.creating) return;
-
-    dispatch({ type: 'ADMIN_CREATE_LIBRARY_START' });
-    try {
-      const res = await fetch(`${API_BASE}/api/lessons/create`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${auth.token}`,
-        },
-        body: JSON.stringify({
-          videoUrl: createLibraryForm.videoUrl.trim(),
-          isPublic: createLibraryForm.isPublic,
-          cefrLevel: createLibraryForm.cefrLevel,
-          tags: createLibraryForm.tags.trim() || 'Daily Conversation',
-        }),
-      });
-      const data = await parseJsonSafe(res);
-      if (res.ok && data.lesson) {
-        dispatch({ type: 'ADMIN_CREATE_LIBRARY_DONE', payload: data });
-        dispatch({
-          type: 'SET_NOTIFICATION',
-          payload: {
-            type: 'success',
-            message: `Lesson "${data.lesson.title}" ${
-              data.lesson.is_public ? 'published to All Lessons first page' : 'created'
-            }!`,
-          },
-        });
-      } else {
-        dispatch({ type: 'ADMIN_CREATE_LIBRARY_DONE' });
-        dispatch({
-          type: 'SET_NOTIFICATION',
-          payload: { type: 'error', message: data.error || 'Failed to create video lesson.' },
-        });
-      }
-    } catch {
-      dispatch({ type: 'ADMIN_CREATE_LIBRARY_DONE' });
-      dispatch({
-        type: 'SET_NOTIFICATION',
-        payload: { type: 'error', message: 'Network error while creating library lesson.' },
       });
     }
   };
@@ -853,109 +804,9 @@ export default function AdminDashboard({ onOpenLesson }) {
             </table>
           </div>
         ) : (
-          /* ALL LESSONS CONTROLLER + MANAGEMENT TABLE */
-          <div className="space-y-4">
-            {/* Admin Create & Publish Library Video Bar */}
-            <form
-              onSubmit={handleAdminCreateLibraryLesson}
-              className="p-4 sm:px-6 bg-blue-50/40 border-b border-slate-100 flex flex-col xl:flex-row xl:items-center gap-3"
-            >
-              <div className="flex-1 min-w-0">
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#2563EB] mb-1">
-                  Add YouTube Video to First Page (All Lessons Controller)
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Paste YouTube URL (e.g. https://youtu.be/...)"
-                  value={createLibraryForm.videoUrl}
-                  onChange={(e) =>
-                    dispatch({
-                      type: 'ADMIN_UPDATE_CREATE_LIBRARY_FORM',
-                      payload: { field: 'videoUrl', value: e.target.value },
-                    })
-                  }
-                  disabled={createLibraryForm.creating}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#2563EB]"
-                />
-              </div>
-
-              <div className="flex flex-wrap items-end gap-2.5">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-500 mb-1">Level</label>
-                  <select
-                    value={createLibraryForm.cefrLevel}
-                    onChange={(e) =>
-                      dispatch({
-                        type: 'ADMIN_UPDATE_CREATE_LIBRARY_FORM',
-                        payload: { field: 'cefrLevel', value: e.target.value },
-                      })
-                    }
-                    className="px-2.5 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800"
-                  >
-                    {['A1', 'A2', 'B1', 'B2', 'C1'].map((lvl) => (
-                      <option key={lvl} value={lvl}>
-                        {lvl}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="w-52">
-                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                    Tags (comma separated)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Travel English, Daily Conversation"
-                    value={createLibraryForm.tags}
-                    onChange={(e) =>
-                      dispatch({
-                        type: 'ADMIN_UPDATE_CREATE_LIBRARY_FORM',
-                        payload: { field: 'tags', value: e.target.value },
-                      })
-                    }
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-800 focus:outline-none focus:border-[#2563EB]"
-                  />
-                </div>
-
-                <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={createLibraryForm.isPublic}
-                    onChange={(e) =>
-                      dispatch({
-                        type: 'ADMIN_UPDATE_CREATE_LIBRARY_FORM',
-                        payload: { field: 'isPublic', value: e.target.checked },
-                      })
-                    }
-                    className="rounded border-slate-300 text-[#2563EB]"
-                  />
-                  <span>Publish to First Page</span>
-                </label>
-
-                <button
-                  type="submit"
-                  disabled={createLibraryForm.creating || !createLibraryForm.videoUrl.trim()}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold shadow-sm cursor-pointer"
-                >
-                  {createLibraryForm.creating ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Creating...</span>
-                    </>
-                  ) : (
-                    <>
-                      <PlusCircle className="w-3.5 h-3.5" />
-                      <span>Add Video Lesson</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+          /* LESSONS MANAGEMENT TABLE */
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                     <th className="py-3.5 px-6">Lesson Video</th>
@@ -1152,7 +1003,6 @@ export default function AdminDashboard({ onOpenLesson }) {
                 </tbody>
               </table>
             </div>
-          </div>
         )}
       </div>
     </div>

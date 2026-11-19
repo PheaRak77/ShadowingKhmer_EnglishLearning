@@ -7,13 +7,32 @@ import {
   History,
   BookOpenCheck,
   Sparkles,
-  ShieldCheck,
   Loader2,
   Clock,
   CheckCircle2,
   X,
+  PlusCircle,
+  Pencil,
+  Trash2,
+  Youtube,
+  Crown,
 } from 'lucide-react';
 import { useAppContext } from '../reducer/appReducer.js';
+
+const API_BASE = import.meta.env.VITE_API_URL || '';
+
+async function parseJsonSafe(response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {
+      error: response.ok
+        ? 'Unexpected response from server.'
+        : 'Server is waking up or restarting. Please try again in a few seconds.',
+    };
+  }
+}
 
 const LEVEL_BADGE_STYLES = {
   A1: 'bg-emerald-100 text-emerald-800 border-emerald-200/80',
@@ -39,11 +58,128 @@ function formatRelativeTime(isoString) {
 
 export default function AllLessonsLibrary({ onOpenLesson }) {
   const { state, dispatch } = useAppContext();
-  const { auth, library } = state;
+  const { auth, library, adminDashboard } = state;
   const { loading, lessons, history, activeTab, selectedLevel, searchQuery } = library;
+  const { createLibraryForm, editingLessonId, lessonEditForm } = adminDashboard;
 
   const isGuest = !auth.user || !auth.token;
   const isAdmin = !isGuest && auth.user?.role === 'admin';
+
+  // Admin-only: Create & publish a new video lesson directly on the All Lessons page
+  const handleAdminCreateLesson = async (e) => {
+    e.preventDefault();
+    if (!isAdmin || !createLibraryForm.videoUrl.trim() || createLibraryForm.creating) return;
+
+    dispatch({ type: 'ADMIN_CREATE_LIBRARY_START' });
+    try {
+      const res = await fetch(`${API_BASE}/api/lessons/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({
+          videoUrl: createLibraryForm.videoUrl.trim(),
+          isPublic: true,
+          cefrLevel: createLibraryForm.cefrLevel,
+          tags: createLibraryForm.tags.trim() || 'Daily Conversation',
+        }),
+      });
+      const data = await parseJsonSafe(res);
+      if (res.ok && data.lesson) {
+        dispatch({ type: 'ADMIN_CREATE_LIBRARY_DONE', payload: data });
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: {
+            type: 'success',
+            message: `Published "${data.lesson.title}" to All Lessons for all students!`,
+          },
+        });
+      } else {
+        dispatch({ type: 'ADMIN_CREATE_LIBRARY_DONE' });
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: { type: 'error', message: data.error || 'Failed to create video lesson.' },
+        });
+      }
+    } catch {
+      dispatch({ type: 'ADMIN_CREATE_LIBRARY_DONE' });
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: { type: 'error', message: 'Network error while creating video lesson.' },
+      });
+    }
+  };
+
+  // Admin-only: Save edited title / level / tags directly on a card
+  const handleAdminSaveEdit = async (e, lessonId) => {
+    e.stopPropagation();
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/lessons/${lessonId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({
+          title: lessonEditForm.title.trim(),
+          cefrLevel: lessonEditForm.cefrLevel,
+          tags: lessonEditForm.tags.trim() || 'Daily Conversation',
+          isPublic: true,
+        }),
+      });
+      const data = await parseJsonSafe(res);
+      if (res.ok && data.lesson) {
+        dispatch({ type: 'ADMIN_LESSON_UPDATED', payload: data.lesson });
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: { type: 'success', message: `Updated "${data.lesson.title}".` },
+        });
+      } else {
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: { type: 'error', message: data.error || 'Failed to update lesson.' },
+        });
+      }
+    } catch {
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: { type: 'error', message: 'Network error updating lesson.' },
+      });
+    }
+  };
+
+  // Admin-only: Delete a lesson directly from the All Lessons page
+  const handleAdminDeleteLesson = async (e, lesson) => {
+    e.stopPropagation();
+    if (!window.confirm(`Delete "${lesson.title}" from All Lessons permanently?`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/lessons/${lesson.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${auth.token}` },
+      });
+      if (res.ok) {
+        dispatch({ type: 'ADMIN_LESSON_DELETED', payload: lesson.id });
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: { type: 'success', message: `Deleted "${lesson.title}" from All Lessons.` },
+        });
+      } else {
+        const data = await parseJsonSafe(res);
+        dispatch({
+          type: 'SET_NOTIFICATION',
+          payload: { type: 'error', message: data.error || 'Failed to delete lesson.' },
+        });
+      }
+    } catch {
+      dispatch({
+        type: 'SET_NOTIFICATION',
+        payload: { type: 'error', message: 'Network error deleting lesson.' },
+      });
+    }
+  };
 
   // Map studied lesson IDs for quick lookup on "All Lessons" cards
   const historyById = {};
@@ -90,31 +226,108 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' })}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#2563EB] hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold shadow-sm transition-all cursor-pointer"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>Create From YouTube Link</span>
-            </button>
-
-            {isAdmin && (
+          {!isAdmin && (
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
               <button
                 type="button"
-                onClick={() => {
-                  dispatch({ type: 'ADMIN_SET_TAB', payload: 'lessons' });
-                  dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'admin' });
-                }}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-[#2563EB] text-xs sm:text-sm font-semibold transition-all cursor-pointer"
+                onClick={() => dispatch({ type: 'SET_ACTIVE_SCREEN', payload: 'workspace' })}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#2563EB] hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold shadow-sm transition-all cursor-pointer"
               >
-                <ShieldCheck className="w-4 h-4" />
-                <span>Manage All Lessons</span>
+                <Sparkles className="w-4 h-4" />
+                <span>Create From YouTube Link</span>
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
+
+        {/* ADMIN-ONLY VIDEO LESSON CREATOR CONTROLLER (Right on All Lessons Page) */}
+        {isAdmin && (
+          <form
+            onSubmit={handleAdminCreateLesson}
+            className="p-4 rounded-2xl bg-gradient-to-r from-blue-50/80 via-indigo-50/40 to-white border border-blue-200/80 space-y-3"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wider text-[#2563EB]">
+                <Crown className="w-3.5 h-3.5" />
+                <span>Admin All Lessons Controller — Create Video Lesson for Students</span>
+              </span>
+              <span className="text-[11px] font-medium text-slate-500">
+                Only visible to Admin • Publishes directly to students&apos; first page
+              </span>
+            </div>
+
+            <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5">
+              <div className="relative flex-1">
+                <Youtube className="w-4 h-4 text-rose-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  required
+                  placeholder="Paste YouTube video link (e.g. https://youtu.be/...)"
+                  value={createLibraryForm.videoUrl}
+                  onChange={(e) =>
+                    dispatch({
+                      type: 'ADMIN_UPDATE_CREATE_LIBRARY_FORM',
+                      payload: { field: 'videoUrl', value: e.target.value },
+                    })
+                  }
+                  disabled={createLibraryForm.creating}
+                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
+
+              <select
+                value={createLibraryForm.cefrLevel}
+                onChange={(e) =>
+                  dispatch({
+                    type: 'ADMIN_UPDATE_CREATE_LIBRARY_FORM',
+                    payload: { field: 'cefrLevel', value: e.target.value },
+                  })
+                }
+                disabled={createLibraryForm.creating}
+                className="px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:border-[#2563EB]"
+                title="CEFR Level"
+              >
+                {['A1', 'A2', 'B1', 'B2', 'C1'].map((lvl) => (
+                  <option key={lvl} value={lvl}>
+                    Level {lvl}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="text"
+                placeholder="Tags: Travel English, Daily Conversation"
+                value={createLibraryForm.tags}
+                onChange={(e) =>
+                  dispatch({
+                    type: 'ADMIN_UPDATE_CREATE_LIBRARY_FORM',
+                    payload: { field: 'tags', value: e.target.value },
+                  })
+                }
+                disabled={createLibraryForm.creating}
+                className="lg:w-60 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#2563EB]"
+              />
+
+              <button
+                type="submit"
+                disabled={createLibraryForm.creating || !createLibraryForm.videoUrl.trim()}
+                className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-50 text-white text-xs sm:text-sm font-bold shadow-sm transition-all cursor-pointer whitespace-nowrap"
+              >
+                {createLibraryForm.creating ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Creating Lesson...</span>
+                  </>
+                ) : (
+                  <>
+                    <PlusCircle className="w-4 h-4" />
+                    <span>Create Video Lesson</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        )}
 
         {/* Switcher Tabs + Level Filter + Search */}
         <div className="pt-3 border-t border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
@@ -212,7 +425,9 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
           <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto">
             {activeTab === 'history'
               ? 'Open any story from All Lessons to start practicing — every lesson you study will appear here automatically.'
-              : 'Try clearing your search filter or ask an Admin to publish more video lessons.'}
+              : isAdmin
+              ? 'Paste any YouTube link in the Admin box above to create your first video lesson for students.'
+              : 'No lessons available yet. Ask an Admin to add video lessons.'}
           </p>
           {activeTab === 'history' && (
             <button
@@ -240,11 +455,14 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
             const practicedCount = studiedInfo?.practiced_sentences || 0;
             const studiedPct =
               sentenceCount > 0 ? Math.min(100, Math.round((practicedCount / sentenceCount) * 100)) : 0;
+            const isEditingThis = isAdmin && editingLessonId === lesson.id;
 
             return (
               <div
                 key={`${activeTab}-${lesson.id}`}
-                onClick={() => onOpenLesson(lesson)}
+                onClick={() => {
+                  if (!isEditingThis) onOpenLesson(lesson);
+                }}
                 className="group bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-lg hover:border-blue-200 hover:-translate-y-0.5 transition-all duration-200 overflow-hidden cursor-pointer flex flex-col"
               >
                 {/* Thumbnail Header with Overlays */}
@@ -271,11 +489,13 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
                   </span>
 
                   {/* Center Hover Play Icon */}
-                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <div className="w-12 h-12 rounded-full bg-[#2563EB]/95 text-white flex items-center justify-center shadow-xl">
-                      <Play className="w-5 h-5 fill-white ml-0.5" />
+                  {!isEditingThis && (
+                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="w-12 h-12 rounded-full bg-[#2563EB]/95 text-white flex items-center justify-center shadow-xl">
+                        <Play className="w-5 h-5 fill-white ml-0.5" />
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Bottom-Left: Sentence Count Badge */}
                   <span className="absolute bottom-2.5 left-2.5 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[11px] font-semibold bg-black/70 backdrop-blur-sm text-white">
@@ -294,44 +514,144 @@ export default function AllLessonsLibrary({ onOpenLesson }) {
 
                 {/* Card Body */}
                 <div className="p-3.5 flex-1 flex flex-col justify-between gap-2.5">
-                  <h3 className="text-[13.5px] font-bold text-slate-900 leading-snug line-clamp-2 group-hover:text-[#2563EB] transition-colors">
-                    {lesson.title}
-                  </h3>
-
-                  <div className="space-y-2">
-                    {/* Category / Tag Chips */}
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {tagsList.map((tag, idx) => (
-                        <span
-                          key={idx}
-                          className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium border border-slate-200/70"
+                  {isEditingThis ? (
+                    <div
+                      className="space-y-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="text"
+                        value={lessonEditForm.title}
+                        onChange={(e) =>
+                          dispatch({
+                            type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
+                            payload: { field: 'title', value: e.target.value },
+                          })
+                        }
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-blue-300 text-xs font-bold text-slate-900"
+                        placeholder="Lesson title"
+                      />
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          value={lessonEditForm.cefrLevel}
+                          onChange={(e) =>
+                            dispatch({
+                              type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
+                              payload: { field: 'cefrLevel', value: e.target.value },
+                            })
+                          }
+                          className="px-2 py-1 rounded-lg border border-slate-300 text-xs font-bold"
                         >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-
-                    {/* Studied History Footer Bar */}
-                    {studiedInfo && (
-                      <div className="pt-2 border-t border-slate-100 space-y-1">
-                        <div className="flex items-center justify-between text-[11px] text-slate-500">
-                          <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
-                            <Clock className="w-3 h-3" />
-                            <span>{formatRelativeTime(studiedInfo.last_studied_at)}</span>
-                          </span>
-                          <span className="font-semibold text-slate-700">
-                            {practicedCount}/{sentenceCount} practiced
-                          </span>
-                        </div>
-                        <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-emerald-500 transition-all"
-                            style={{ width: `${Math.max(studiedPct, 8)}%` }}
-                          />
-                        </div>
+                          {['A1', 'A2', 'B1', 'B2', 'C1'].map((lvl) => (
+                            <option key={lvl} value={lvl}>
+                              {lvl}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="text"
+                          value={lessonEditForm.tags}
+                          onChange={(e) =>
+                            dispatch({
+                              type: 'ADMIN_UPDATE_LESSON_EDIT_FIELD',
+                              payload: { field: 'tags', value: e.target.value },
+                            })
+                          }
+                          className="flex-1 min-w-0 px-2 py-1 rounded-lg border border-slate-300 text-xs"
+                          placeholder="Tags..."
+                        />
                       </div>
-                    )}
-                  </div>
+                      <div className="flex items-center justify-end gap-1.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            dispatch({ type: 'ADMIN_OPEN_LESSON_EDIT', payload: null });
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 text-[11px] font-semibold cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => handleAdminSaveEdit(e, lesson.id)}
+                          className="px-3 py-1 rounded-lg bg-[#2563EB] text-white text-[11px] font-bold cursor-pointer"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <h3 className="text-[13.5px] font-bold text-slate-900 leading-snug line-clamp-2 group-hover:text-[#2563EB] transition-colors">
+                        {lesson.title}
+                      </h3>
+
+                      <div className="space-y-2">
+                        {/* Category / Tag Chips + Admin Controls */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {tagsList.map((tag, idx) => (
+                              <span
+                                key={idx}
+                                className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium border border-slate-200/70"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+
+                          {isAdmin && (
+                            <div
+                              className="inline-flex items-center gap-1 shrink-0"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  dispatch({ type: 'ADMIN_OPEN_LESSON_EDIT', payload: lesson });
+                                }}
+                                className="p-1 rounded-lg text-slate-400 hover:text-[#2563EB] hover:bg-blue-50 cursor-pointer"
+                                title="Edit lesson level, tags, or title"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => handleAdminDeleteLesson(e, lesson)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                                title="Delete lesson"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Studied History Footer Bar */}
+                        {studiedInfo && (
+                          <div className="pt-2 border-t border-slate-100 space-y-1">
+                            <div className="flex items-center justify-between text-[11px] text-slate-500">
+                              <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
+                                <Clock className="w-3 h-3" />
+                                <span>{formatRelativeTime(studiedInfo.last_studied_at)}</span>
+                              </span>
+                              <span className="font-semibold text-slate-700">
+                                {practicedCount}/{sentenceCount} practiced
+                              </span>
+                            </div>
+                            <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-emerald-500 transition-all"
+                                style={{ width: `${Math.max(studiedPct, 8)}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             );
